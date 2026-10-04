@@ -2,19 +2,8 @@ import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { JobContext, JobResult } from "../jobs.js";
 import { mapLimit } from "../pool.js";
-import { TestOpsError, type TestOpsClient } from "../testops.js";
-import type {
-  ApiAttachmentRow,
-  ApiCustomFieldWithValues,
-  ApiEnvVarValue,
-  ApiFixture,
-  ApiIssue,
-  ApiLaunch,
-  ApiMember,
-  ApiScenario,
-  ApiTestResult,
-  ResultDetails,
-} from "./api.js";
+import type { TestOpsClient } from "../testops.js";
+import type { ApiAttachmentRow, ApiEnvVarValue, ApiLaunch, ApiTestResult } from "./api.js";
 import {
   attachmentExtension,
   attachmentRows,
@@ -25,6 +14,7 @@ import {
   type GroupBy,
 } from "./convert.js";
 import { generateSingleFileReport } from "./generate.js";
+import { attachmentContentPath, checkCancelled as checkCancelledJob, message, readResultDetails, warner } from "./read.js";
 
 export interface LaunchReportOptions {
   launchId: number;
@@ -41,27 +31,13 @@ export interface LaunchReportOptions {
 
 /** Results are read this many at a time; each takes several requests, which the client throttles. */
 const RESULT_CONCURRENCY = 8;
-const MAX_WARNINGS_PER_KIND = 20;
-
-const CONTENT_PATH: Record<AttachmentOwner, string> = {
-  result: "/api/rs/testresult/attachment",
-  fixture: "/api/rs/testfixtureresult/attachment",
-};
-
 export function attachmentFileName(owner: AttachmentOwner, row: ApiAttachmentRow): string {
   return `${owner}-${row.id}-attachment${attachmentExtension(row)}`;
 }
 
 export async function exportLaunchReport(client: TestOpsClient, o: LaunchReportOptions, ctx: JobContext): Promise<JobResult> {
-  const warnings = new Map<string, number>();
-  const warn = (kind: string, line: string) => {
-    const n = (warnings.get(kind) ?? 0) + 1;
-    warnings.set(kind, n);
-    if (n <= MAX_WARNINGS_PER_KIND) ctx.warn(line);
-  };
-  const checkCancelled = () => {
-    if (ctx.signal.aborted) throw new Error("Cancelled");
-  };
+  const { warn, flush } = warner(ctx);
+  const checkCancelled = () => checkCancelledJob(ctx);
 
   ctx.phase("Reading the launch");
   const launch = await client.get<ApiLaunch>(`/api/rs/launch/${o.launchId}`);
@@ -81,22 +57,9 @@ export async function exportLaunchReport(client: TestOpsClient, o: LaunchReportO
   ctx.phase("Reading test result details", results.length);
   const details = await mapLimit(results, RESULT_CONCURRENCY, async (result) => {
     checkCancelled();
-    const part = <T>(what: string, path: string, fallback: T, params: Record<string, string> = {}) =>
-      client.get<T>(path, params).catch((e: unknown) => {
-        if (e instanceof TestOpsError && e.status === 404) return fallback;
-        warn(what, `Test result ${result.id} "${result.name}": ${what} not exported: ${message(e)}`);
-        return fallback;
-      });
-    const id = result.id;
-    const [scenario, fixtures, customFields, members, issues] = await Promise.all([
-      part<ApiScenario | null>("steps", `/api/rs/testresult/${id}/execution`, null, { v2: "true" }),
-      part<ApiFixture[]>("fixtures", `/api/rs/testresult/${id}/fixture`, [], { v2: "true" }),
-      part<ApiCustomFieldWithValues[]>("custom fields", `/api/rs/testresult/${id}/cfv`, [], { v2: "true" }),
-      part<ApiMember[]>("members", `/api/rs/testresult/${id}/members`, []),
-      part<ApiIssue[]>("issues", `/api/rs/testresult/${id}/issue`, []),
-    ]);
+    const d = await readResultDetails(client, result, warn);
     ctx.advance();
-    return { result, scenario, fixtures: fixtures ?? [], customFields: customFields ?? [], members: members ?? [], issues: issues ?? [] } satisfies ResultDetails;
+    return d;
   });
 
   const resultsDir = join(ctx.dir, "allure-results");
@@ -116,7 +79,7 @@ export async function exportLaunchReport(client: TestOpsClient, o: LaunchReportO
     await mapLimit(wanted, RESULT_CONCURRENCY, async ({ owner, row }) => {
       checkCancelled();
       try {
-        const content = await client.download(`${CONTENT_PATH[owner]}/${row.id}/content`);
+        const content = await client.download(attachmentContentPath(owner, row.id));
         const name = attachmentFileName(owner, row);
         await writeFile(join(resultsDir, name), content);
         saved.add(name);
@@ -149,9 +112,7 @@ export async function exportLaunchReport(client: TestOpsClient, o: LaunchReportO
     JSON.stringify({ name: "Allure TestOps", type: "allure-testops", buildName: launch.name, buildUrl: `${client.endpoint}/launch/${launch.id}` }),
   );
 
-  for (const [kind, n] of warnings) {
-    if (n > MAX_WARNINGS_PER_KIND) ctx.warn(`… and ${n - MAX_WARNINGS_PER_KIND} more warnings of this kind (${kind})`);
-  }
+  flush();
 
   checkCancelled();
   ctx.phase("Generating the report");
@@ -167,10 +128,6 @@ export async function exportLaunchReport(client: TestOpsClient, o: LaunchReportO
   await rm(resultsDir, { recursive: true, force: true });
   await rm(outputDir, { recursive: true, force: true });
   return { path, name: fileName, contentType: "text/html; charset=utf-8" };
-}
-
-function message(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
 }
 
 function mb(bytes: number): string {

@@ -47,6 +47,18 @@ export interface LaunchReportInput {
   theme: Theme;
 }
 
+export type DocumentStatus = ResultStatus | "in_progress";
+
+export interface LaunchDocumentInput {
+  launchId: number;
+  /** Empty means all. */
+  statuses: DocumentStatus[];
+  includeRetries: boolean;
+  embedAttachments: boolean;
+  maxAttachmentMb: number;
+  maxTotalAttachmentMb: number;
+}
+
 export type JobState = "running" | "done" | "failed" | "cancelled";
 
 export interface Job {
@@ -98,6 +110,7 @@ export const api = {
   envValues: (projectId: number, envVarId: number, q: string) =>
     call<IdName[]>("GET", `/api/projects/${projectId}/env-vars/${envVarId}/values?${new URLSearchParams({ q })}`),
   startLaunchReport: (input: LaunchReportInput) => call<Job>("POST", "/api/launch-report", input),
+  startLaunchDocument: (input: LaunchDocumentInput) => call<Job>("POST", "/api/launch-document", input),
   jobs: (kind: string) => call<Job[]>("GET", `/api/jobs?kind=${encodeURIComponent(kind)}`),
   job: (id: string) => call<Job>("GET", `/api/jobs/${id}`),
   cancelJob: (id: string) => call<Job>("POST", `/api/jobs/${id}/cancel`),

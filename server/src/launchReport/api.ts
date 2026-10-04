@@ -52,7 +52,9 @@ export interface ApiTestResult {
   description?: string | null;
   descriptionHtml?: string | null;
   precondition?: string | null;
+  preconditionHtml?: string | null;
   expectedResult?: string | null;
+  expectedResultHtml?: string | null;
   start?: number | null;
   stop?: number | null;
   duration?: number | null;
@@ -72,6 +74,17 @@ export interface ApiTestResult {
   parameters?: ApiParameter[] | null;
   tags?: { id?: number; name: string }[] | null;
   links?: ApiLink[] | null;
+  jobRun?: { id: number; name?: string | null; url?: string | null } | null;
+}
+
+/** A CI job run that reported results into the launch. */
+export interface ApiJobRun {
+  id: number;
+  name?: string | null;
+  url?: string | null;
+  stage?: string | null;
+  status?: string | null;
+  job?: { id: number; name?: string | null; url?: string | null } | null;
 }
 
 export interface ApiAttachmentRow {
@@ -147,4 +160,6 @@ export interface ResultDetails {
   customFields: ApiCustomFieldWithValues[];
   members: ApiMember[];
   issues: ApiIssue[];
+  /** Read only when an export needs it. */
+  environment?: ApiEnvVarValue[];
 }

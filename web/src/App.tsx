@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Alert, Layout, Menu, Spin, Typography } from "antd";
-import { FileTextOutlined, SettingOutlined } from "@ant-design/icons";
+import { FileTextOutlined, ProfileOutlined, SettingOutlined } from "@ant-design/icons";
 import { api, errorText, type PublicConfig } from "./api";
+import { LaunchDocumentPage } from "./LaunchDocumentPage";
 import { LaunchReportPage } from "./LaunchReportPage";
 import { SettingsPage } from "./SettingsPage";
 
@@ -16,6 +17,7 @@ interface Tool {
 
 const TOOLS: Tool[] = [
   { key: "launch-report", group: "Export", label: "Launch → Allure Report", icon: <FileTextOutlined />, render: () => <LaunchReportPage /> },
+  { key: "launch-document", group: "Export", label: "Launch → HTML document", icon: <ProfileOutlined />, render: () => <LaunchDocumentPage /> },
 ];
 
 const SETTINGS = "settings";

@@ -61,123 +61,155 @@ function cf(id, name, ...values) {
   return { customField: { id, name }, values: values.map((v, i) => ({ id: id * 100 + i, name: v })) };
 }
 
-for (const p of projects) {
-  for (let l = 0; l < 12; l++) {
-    const launchId = seq++;
-    // The last launch of each project uses behaviours instead of suites.
-    const behaviours = l % 3 === 2;
-    const created = now - (l * 2 + 1) * DAY;
-    launches.push({
-      id: launchId,
-      name: `${p.name} ${kinds[l % 4]} #${100 - l}`,
-      projectId: p.id,
-      closed: l > 0,
-      createdBy: users[l % 3],
-      createdDate: created,
-      tags: [kinds[l % 4], ...(l % 3 === 0 ? ["ui"] : ["api"]), ...(l % 5 === 0 ? ["release-candidate"] : [])].map(launchTag),
-      // Some launches run in two browsers; some have no OS.
-      env: [
-        envValue(1, ["chrome", "firefox", "safari"][l % 3]),
-        ...(l % 4 === 0 && l % 3 !== 1 ? [envValue(1, "firefox")] : []),
-        envValue(2, l % 2 ? "prod" : "stage"),
-        ...(l % 5 === 4 ? [] : [envValue(3, l % 2 ? "macos" : "linux")]),
-      ],
-    });
-    const list = [];
-    for (let i = 0; i < 40; i++) {
-      const id = seq++;
-      const start = created + i * 7000;
-      const status = i === 39 ? null : statuses[(i + l) % statuses.length];
-      const feature = ["Cart", "Checkout", "Login", "Search"][i % 4];
-      const testCaseId = p.id * 10_000 + i;
-      const failed = status === "failed" || status === "broken";
-      const result = {
-        id,
-        projectId: p.id,
-        launchId,
-        testCaseId,
-        historyKey: `hk-${p.id}-${i}`,
-        name: `${feature}: scenario ${i}`,
-        fullName: `com.example.${feature.toLowerCase()}.Scenario${i}Test`,
-        description: i % 3 === 0 ? `Checks **${feature.toLowerCase()}** behaviour, case ${i}.` : null,
-        precondition: i % 5 === 0 ? "User is logged in" : null,
-        expectedResult: i % 5 === 0 ? "The page opens" : null,
-        start,
-        stop: start + 1500 + i * 30,
-        duration: 1500 + i * 30,
-        status,
-        layer: { id: 1, name: i % 2 ? "UI" : "API" },
-        message: failed ? `Expected: 200\nActual: ${status === "failed" ? 500 : 404}` : null,
-        trace: failed ? `java.lang.AssertionError: boom\n\tat com.example.${feature}Test.run(${feature}Test.java:${10 + i})` : null,
-        manual: false,
-        hostId: `agent-${i % 2}`,
-        threadId: `worker-${i % 4}`,
-        flaky: i % 11 === 3,
-        muted: i % 13 === 4,
-        known: false,
-        hidden: false,
-        parameters: i % 4 === 0 ? [{ name: "browser", value: "chrome", hidden: false, excluded: false }, { name: "secret", value: "s3cr3t", hidden: true, excluded: false }] : [],
-        tags: [{ id: 1, name: i % 2 ? "ui" : "api" }, ...(i % 6 === 0 ? [{ id: 2, name: "smoke" }] : [])],
-        links: i % 7 === 0 ? [{ name: "Spec", url: `https://wiki.example.com/spec/${i}`, type: "link" }] : [],
-      };
-      list.push(result);
+// Twelve small launches per project; MOCK_LARGE_LAUNCH=20000 adds a big one to "Mobile App".
+const specs = projects.flatMap((p) => Array.from({ length: 12 }, (_, l) => ({ p, l, count: 40, name: null })));
+const LARGE_LAUNCH = Number(process.env.MOCK_LARGE_LAUNCH ?? 0);
+if (LARGE_LAUNCH > 0) specs.push({ p: projects[1], l: 12, count: LARGE_LAUNCH, name: `${projects[1].name} load #1` });
 
-      const inner = [
-        { type: "body", body: `Fill the ${feature.toLowerCase()} form`, status: "passed", start: start + 10, stop: start + 200, duration: 190, parameters: [{ name: "field", value: "email" }], steps: [] },
-        attachmentStep("result", "request.json", "application/json", Buffer.from(JSON.stringify({ case: i, feature }, null, 2)), start + 220),
-      ];
-      details.set(id, {
-        scenario: {
-          steps: [
-            { type: "body", body: `Open ${feature} page`, status: "passed", start, stop: start + 300, duration: 300, steps: inner, expectedResultSteps: i % 5 === 0 ? [{ type: "expected_body", body: "Page is shown", status: "passed" }] : [] },
-            {
-              type: "body",
-              body: "Check the result",
-              status: status ?? "unknown",
-              start: start + 300,
-              stop: start + 1400,
-              duration: 1100,
-              message: failed ? result.message : null,
-              trace: failed ? result.trace : null,
-              steps: [],
-            },
-            attachmentStep("result", "log.txt", "text/plain", Buffer.from(`log of ${result.name}\nline 2\n`), start + 1400),
-            ...(failed ? [attachmentStep("result", "screenshot.png", "image/png", PNG, start + 1450)] : []),
-          ],
-        },
-        fixtures:
-          i % 3 === 0
-            ? [
-                { id: seq++, type: "before", name: "start browser", start: start - 500, stop: start, status: "passed", scenario: { steps: [attachmentStep("fixture", "browser.log", "text/plain", Buffer.from("browser started\n"), start - 10)] } },
-                { id: seq++, type: "after", name: "close browser", start: start + 1600, stop: start + 1700, status: "passed", scenario: { steps: [] } },
-              ]
-            : [],
-        cfv: behaviours
-          ? [cf(1, "Epic", "Shop"), cf(2, "Feature", feature), cf(3, "Story", `${feature} story ${i % 3}`)]
-          : [cf(4, "Parent Suite", p.name), cf(5, "Suite", feature), cf(6, "Sub Suite", i % 2 ? "UI" : "API"), cf(7, "Component", `${feature}-svc`)],
-        members: [{ id: 1, name: users[i % 3], role: { id: 1, name: "Owner" } }, { id: 2, name: users[(i + 1) % 3], role: { id: 2, name: "Lead" } }],
-        issues: i % 9 === 0 ? [{ id: 900 + i, name: `SHOP-${100 + i}`, url: `https://jira.example.com/browse/SHOP-${100 + i}` }] : [],
-      });
+const jobRuns = new Map(); // launchId → job runs
+const resultEnv = new Map(); // resultId → environment values
 
-      // Every eighth test was retried: the earlier attempt is a hidden result.
-      if (i % 8 === 5) {
-        const retryId = seq++;
-        list.push({
-          ...result,
-          id: retryId,
-          start: start - 3000,
-          stop: start - 1500,
-          duration: 1500,
-          status: "failed",
-          message: "Flaky timeout",
-          trace: "java.util.concurrent.TimeoutException",
-          hidden: true,
-        });
-        details.set(retryId, { scenario: { steps: [] }, fixtures: [], cfv: details.get(id).cfv, members: [], issues: [] });
-      }
-    }
-    results.set(launchId, list);
+for (const { p, l, count, name } of specs) {
+  const launchId = seq++;
+  // The last launch of each project uses behaviours instead of suites.
+  const behaviours = l % 3 === 2;
+  const created = now - (l * 2 + 1) * DAY;
+  launches.push({
+    id: launchId,
+    name: name ?? `${p.name} ${kinds[l % 4]} #${100 - l}`,
+    projectId: p.id,
+    closed: l > 0,
+    createdBy: users[l % 3],
+    createdDate: created,
+    tags: [kinds[l % 4], ...(l % 3 === 0 ? ["ui"] : ["api"]), ...(l % 5 === 0 ? ["release-candidate"] : [])].map(launchTag),
+    // Some launches run in two browsers; some have no OS.
+    env: [
+      envValue(1, ["chrome", "firefox", "safari"][l % 3]),
+      ...(l % 4 === 0 && l % 3 !== 1 ? [envValue(1, "firefox")] : []),
+      envValue(2, l % 2 ? "prod" : "stage"),
+      ...(l % 5 === 4 ? [] : [envValue(3, l % 2 ? "macos" : "linux")]),
+    ],
+  });
+  const launch = launches.at(-1);
+  if (l % 3 === 0) {
+    launch.links = [{ name: "CI pipeline", url: `https://ci.example.com/pipelines/${launchId}`, type: "link" }];
+    launch.issues = [{ id: 700 + l, name: `SHOP-${700 + l}`, url: `https://jira.example.com/browse/SHOP-${700 + l}`, summary: "Release checklist" }];
   }
+  // Even launches come from two CI job runs, one per browser.
+  const runs =
+    l % 2 === 0
+      ? ["chrome", "firefox"].map((browser, k) => ({
+          id: launchId * 10 + k,
+          name: `#${200 + l * 2 + k}`,
+          url: `https://ci.example.com/job/web-tests-${browser}/${200 + l * 2 + k}`,
+          stage: "DONE",
+          status: k === 0 ? "SUCCESS" : "FAILURE",
+          job: { id: 50 + k, name: `web-tests-${browser}`, url: `https://ci.example.com/job/web-tests-${browser}` },
+          launchId,
+          browser,
+        }))
+      : [];
+  jobRuns.set(launchId, runs.map(({ browser: _browser, ...run }) => run));
+  const list = [];
+  for (let i = 0; i < count; i++) {
+    const id = seq++;
+    const start = created + i * 7000;
+    const status = i === 39 ? null : statuses[(i + l) % statuses.length];
+    const feature = ["Cart", "Checkout", "Login", "Search"][i % 4];
+    const testCaseId = p.id * 1_000_000 + i;
+    const run = runs.length ? runs[i % runs.length] : null;
+    const failed = status === "failed" || status === "broken";
+    const result = {
+      id,
+      projectId: p.id,
+      launchId,
+      testCaseId,
+      historyKey: `hk-${p.id}-${i}`,
+      name: `${feature}: scenario ${i}`,
+      fullName: `com.example.${feature.toLowerCase()}.Scenario${i}Test`,
+      description: i % 3 === 0 ? `Checks **${feature.toLowerCase()}** behaviour, case ${i}.` : null,
+      descriptionHtml: i % 3 === 0 ? `<p>Checks <strong>${feature.toLowerCase()}</strong> behaviour, case ${i}.</p>` : null,
+      precondition: i % 5 === 0 ? "User is logged in" : null,
+      preconditionHtml: i % 5 === 0 ? "<p>User is logged in</p>" : null,
+      expectedResult: i % 5 === 0 ? "The page opens" : null,
+      expectedResultHtml: i % 5 === 0 ? "<p>The page opens</p>" : null,
+      jobRun: run ? { id: run.id, name: run.name, url: run.url } : null,
+      start,
+      stop: start + 1500 + i * 30,
+      duration: 1500 + i * 30,
+      status,
+      layer: { id: 1, name: i % 2 ? "UI" : "API" },
+      message: failed ? `Expected: 200\nActual: ${status === "failed" ? 500 : 404}` : null,
+      trace: failed ? `java.lang.AssertionError: boom\n\tat com.example.${feature}Test.run(${feature}Test.java:${10 + i})` : null,
+      manual: false,
+      hostId: `agent-${i % 2}`,
+      threadId: `worker-${i % 4}`,
+      flaky: i % 11 === 3,
+      muted: i % 13 === 4,
+      known: false,
+      hidden: false,
+      parameters: i % 4 === 0 ? [{ name: "browser", value: "chrome", hidden: false, excluded: false }, { name: "secret", value: "s3cr3t", hidden: true, excluded: false }] : [],
+      tags: [{ id: 1, name: i % 2 ? "ui" : "api" }, ...(i % 6 === 0 ? [{ id: 2, name: "smoke" }] : [])],
+      links: i % 7 === 0 ? [{ name: "Spec", url: `https://wiki.example.com/spec/${i}`, type: "link" }] : [],
+    };
+    list.push(result);
+    resultEnv.set(id, run ? [envValue(1, run.browser), ...launch.env.filter((v) => v.variable.id !== 1)] : launch.env);
+
+    const inner = [
+      { type: "body", body: `Fill the ${feature.toLowerCase()} form`, status: "passed", start: start + 10, stop: start + 200, duration: 190, parameters: [{ name: "field", value: "email" }], steps: [] },
+      attachmentStep("result", "request.json", "application/json", Buffer.from(JSON.stringify({ case: i, feature }, null, 2)), start + 220),
+    ];
+    details.set(id, {
+      scenario: {
+        steps: [
+          { type: "body", body: `Open ${feature} page`, status: "passed", start, stop: start + 300, duration: 300, steps: inner, expectedResultSteps: i % 5 === 0 ? [{ type: "expected_body", body: "Page is shown", status: "passed" }] : [] },
+          {
+            type: "body",
+            body: "Check the result",
+            status: status ?? "unknown",
+            start: start + 300,
+            stop: start + 1400,
+            duration: 1100,
+            message: failed ? result.message : null,
+            trace: failed ? result.trace : null,
+            steps: [],
+          },
+          attachmentStep("result", "log.txt", "text/plain", Buffer.from(`log of ${result.name}\nline 2\n`), start + 1400),
+          ...(failed ? [attachmentStep("result", "screenshot.png", "image/png", PNG, start + 1450)] : []),
+        ],
+      },
+      fixtures:
+        i % 3 === 0
+          ? [
+              { id: seq++, type: "before", name: "start browser", start: start - 500, stop: start, status: "passed", scenario: { steps: [attachmentStep("fixture", "browser.log", "text/plain", Buffer.from("browser started\n"), start - 10)] } },
+              { id: seq++, type: "after", name: "close browser", start: start + 1600, stop: start + 1700, status: "passed", scenario: { steps: [] } },
+            ]
+          : [],
+      cfv: behaviours
+        ? [cf(1, "Epic", "Shop"), cf(2, "Feature", feature), cf(3, "Story", `${feature} story ${i % 3}`)]
+        : [cf(4, "Parent Suite", p.name), cf(5, "Suite", feature), cf(6, "Sub Suite", i % 2 ? "UI" : "API"), cf(7, "Component", `${feature}-svc`)],
+      members: [{ id: 1, name: users[i % 3], role: { id: 1, name: "Owner" } }, { id: 2, name: users[(i + 1) % 3], role: { id: 2, name: "Lead" } }],
+      issues: i % 9 === 0 ? [{ id: 900 + i, name: `SHOP-${100 + i}`, url: `https://jira.example.com/browse/SHOP-${100 + i}` }] : [],
+    });
+
+    // Every eighth test was retried: the earlier attempt is a hidden result.
+    if (i % 8 === 5) {
+      const retryId = seq++;
+      list.push({
+        ...result,
+        id: retryId,
+        start: start - 3000,
+        stop: start - 1500,
+        duration: 1500,
+        status: "failed",
+        message: "Flaky timeout",
+        trace: "java.util.concurrent.TimeoutException",
+        hidden: true,
+      });
+      details.set(retryId, { scenario: { steps: [] }, fixtures: [], cfv: details.get(id).cfv, members: [], issues: [] });
+    }
+  }
+  results.set(launchId, list);
 }
 
 // A small AQL interpreter for launches: and, or, not, brackets, =, !=, ~=, >,
@@ -423,6 +455,8 @@ createServer(async (req, res) => {
     const list = results.get(Number(url.searchParams.get("launchId"))) ?? [];
     return send(res, 200, page(list, url));
   }
+  if ((m = /^\/api\/rs\/launch\/(\d+)\/job$/.exec(path))) return send(res, 200, jobRuns.get(Number(m[1])) ?? []);
+  if ((m = /^\/api\/rs\/testresult\/(\d+)\/evv$/.exec(path))) return send(res, 200, resultEnv.get(Number(m[1])) ?? []);
   if ((m = /^\/api\/rs\/testresult\/(\d+)\/(execution|fixture|cfv|members|issue)$/.exec(path))) {
     const d = details.get(Number(m[1]));
     if (!d) return send(res, 404, { message: "Test result not found" });

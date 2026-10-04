@@ -3,6 +3,8 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { getConfig, isConfigured, normalizeEndpoint, saveConfig, toPublic } from "./config.js";
 import { cancelJob, deleteJob, getJob, jobFile, listJobs, removeOrphanedJobDirs, startJob } from "./jobs.js";
+import { exportLaunchDocument, type LaunchDocumentOptions } from "./launchDocument/export.js";
+import { STATUS_ORDER, type StatusKey } from "./launchDocument/render.js";
 import { exportLaunchReport, type LaunchReportOptions } from "./launchReport/export.js";
 import { envValues, envVars, InvalidAqlError, isBadRequest, launchTags, listLaunches } from "./launches.js";
 import { TestOpsClient, TestOpsError } from "./testops.js";
@@ -140,6 +142,33 @@ app.post("/api/launch-report", (req, res) => {
   const options = parseLaunchReport(req.body ?? {});
   const c = currentClient();
   res.status(202).json(startJob("launch-report", `Launch ${options.launchId}`, (ctx) => exportLaunchReport(c, options, ctx)));
+});
+
+function nonNegative(value: unknown, fallback: number, what: string): number {
+  const n = value === undefined ? fallback : Number(value);
+  if (!Number.isFinite(n) || n < 0) throw new HttpError(400, `${what} must be 0 or more`);
+  return n;
+}
+
+function parseLaunchDocument(body: Record<string, unknown>): LaunchDocumentOptions {
+  const statuses = Array.isArray(body.statuses) ? body.statuses.map(String) : [];
+  const unknown = statuses.filter((s) => !(STATUS_ORDER as string[]).includes(s));
+  if (unknown.length) throw new HttpError(400, `Unknown statuses: ${unknown.join(", ")}`);
+  return {
+    launchId: positiveInt(body.launchId, "Launch ID"),
+    statuses: statuses as StatusKey[],
+    includeRetries: body.includeRetries === true,
+    embedAttachments: body.embedAttachments !== false,
+    maxAttachmentMb: nonNegative(body.maxAttachmentMb, 2, "maxAttachmentMb"),
+    maxTotalAttachmentMb: nonNegative(body.maxTotalAttachmentMb, 200, "maxTotalAttachmentMb"),
+  };
+}
+
+app.post("/api/launch-document", (req, res) => {
+  requireConfigured();
+  const options = parseLaunchDocument(req.body ?? {});
+  const c = currentClient();
+  res.status(202).json(startJob("launch-document", `Launch ${options.launchId}`, (ctx) => exportLaunchDocument(c, options, ctx)));
 });
 
 app.get("/api/jobs", (req, res) => {
