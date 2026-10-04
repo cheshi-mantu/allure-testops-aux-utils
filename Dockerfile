@@ -19,7 +19,7 @@ CMD ["npm", "test"]
 # ---------------------------------------------------------------- fake Allure TestOps (used by dev-compose.yml)
 FROM node:22-alpine AS mock
 WORKDIR /app
-COPY dev/mock-testops.mjs dev/
+COPY dev/*.mjs dev/
 USER node
 EXPOSE 9090
 CMD ["node", "dev/mock-testops.mjs"]

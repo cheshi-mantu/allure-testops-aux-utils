@@ -32,6 +32,8 @@ export interface JobView {
   log: string[];
   /** Files to download once the job is done, the main one first. */
   files: JobFile[];
+  /** Tool-specific results shown while the job runs and after. */
+  summary: unknown;
 }
 
 /** Handed to the job body to report progress and check for cancellation. */
@@ -41,6 +43,8 @@ export interface JobContext {
   signal: AbortSignal;
   /** Replaces the title given at the start, e.g. once a name is known. */
   title(title: string): void;
+  /** Replaces the tool-specific summary. */
+  summary(data: unknown): void;
   phase(name: string, total?: number): void;
   advance(by?: number): void;
   log(line: string): void;
@@ -68,6 +72,7 @@ class Job {
   readonly warnings: string[] = [];
   readonly log: string[] = [];
   files: (JobResult & { size: number })[] = [];
+  summary: unknown = null;
 
   constructor(
     readonly kind: string,
@@ -89,6 +94,7 @@ class Job {
       warnings: this.warnings.slice(0, MAX_LOG_LINES),
       log: this.log.slice(-MAX_LOG_LINES),
       files: this.files.map((f) => ({ name: f.name, size: f.size, contentType: f.contentType })),
+      summary: this.summary,
     };
   }
 }
@@ -106,6 +112,10 @@ export function startJob(kind: string, title: string, body: (ctx: JobContext) =>
     signal: job.controller.signal,
     title(title) {
       job.title = title;
+    },
+    summary(data) {
+      // A copy: the job body keeps changing its own object.
+      job.summary = structuredClone(data);
     },
     phase(name, total = 0) {
       job.phase = name;

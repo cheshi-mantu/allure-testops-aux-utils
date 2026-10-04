@@ -65,6 +65,38 @@ export interface LaunchDocumentInput {
   sections: Record<DocumentSection, boolean>;
 }
 
+export type TemplateTarget =
+  | { mode: "new"; name: string; abbr: string; description: string; isPublic: boolean }
+  | { mode: "existing"; projectId: number };
+
+export interface TemplateInput {
+  sourceProjectId: number;
+  target: TemplateTarget;
+  sections: string[];
+}
+
+export interface TemplateSection {
+  key: string;
+  label: string;
+  description: string;
+}
+
+export type ActionKind = "create" | "update" | "remove" | "skip" | "manual";
+
+export interface TemplatePreview {
+  source: Project;
+  target: Project | null;
+  warnings: string[];
+  sections: (TemplateSection & { actions: { kind: ActionKind; name: string; detail: string | null }[]; error: string | null })[];
+}
+
+export interface TemplateSummary {
+  sourceProject: Project;
+  targetProject: Project | null;
+  targetUrl: string | null;
+  sections: { key: string; label: string; counts: Record<ActionKind, number>; failed: number; error: string | null }[];
+}
+
 export type JobState = "running" | "done" | "failed" | "cancelled";
 
 export interface Job {
@@ -82,6 +114,8 @@ export interface Job {
   log: string[];
   /** Files to download once the job is done, the main one first. */
   files: { name: string; size: number; contentType: string }[];
+  /** Tool-specific results. */
+  summary: unknown;
 }
 
 export class ApiError extends Error {
@@ -118,6 +152,9 @@ export const api = {
     call<IdName[]>("GET", `/api/projects/${projectId}/env-vars/${envVarId}/values?${new URLSearchParams({ q })}`),
   startLaunchReport: (input: LaunchReportInput) => call<Job>("POST", "/api/launch-report", input),
   startLaunchDocument: (input: LaunchDocumentInput) => call<Job>("POST", "/api/launch-document", input),
+  templateSections: () => call<TemplateSection[]>("GET", "/api/project-template/sections"),
+  previewTemplate: (input: TemplateInput) => call<TemplatePreview>("POST", "/api/project-template/preview", input),
+  startTemplate: (input: TemplateInput) => call<Job>("POST", "/api/project-template", input),
   jobs: (kind: string) => call<Job[]>("GET", `/api/jobs?kind=${encodeURIComponent(kind)}`),
   job: (id: string) => call<Job>("GET", `/api/jobs/${id}`),
   cancelJob: (id: string) => call<Job>("POST", `/api/jobs/${id}/cancel`),

@@ -132,7 +132,7 @@ afterAll(() => {
 
 function context(): JobContext & { warnings: string[] } {
   const warnings: string[] = [];
-  return { dir, signal: new AbortController().signal, warnings, title: () => {}, phase: () => {}, advance: () => {}, log: () => {}, warn: (l) => warnings.push(l) };
+  return { dir, signal: new AbortController().signal, warnings, title: () => {}, summary: () => {}, phase: () => {}, advance: () => {}, log: () => {}, warn: (l) => warnings.push(l) };
 }
 
 describe("exportLaunchDocument", () => {

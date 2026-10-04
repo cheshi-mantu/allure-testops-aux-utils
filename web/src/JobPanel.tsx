@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Alert, Button, Card, Collapse, Progress, Space, Tag, Typography } from "antd";
 import { DeleteOutlined, DownloadOutlined, ExportOutlined, StopOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
@@ -17,7 +17,7 @@ const STATE_TAG: Record<JobState, { color: string; label: string }> = {
 const viewable = (contentType: string) => contentType.startsWith("text/html") || contentType === "application/pdf";
 
 /** Polls a job while it runs; offers its files once it is done. */
-export function JobPanel({ initial, onDeleted }: { initial: Job; onDeleted: (id: string) => void }) {
+export function JobPanel({ initial, onDeleted, summary }: { initial: Job; onDeleted: (id: string) => void; summary?: (job: Job) => ReactNode }) {
   const [job, setJob] = useState(initial);
   const [error, setError] = useState<string | null>(null);
 
@@ -91,6 +91,7 @@ export function JobPanel({ initial, onDeleted }: { initial: Job; onDeleted: (id:
               </Button>
             </div>
           ))}
+        {summary?.(job)}
         {job.error && <Alert type="error" showIcon title={job.error} />}
         {error && <Alert type="warning" showIcon title={error} />}
         {job.warnings.length > 0 && (
@@ -108,7 +109,7 @@ export function JobPanel({ initial, onDeleted }: { initial: Job; onDeleted: (id:
 }
 
 /** Jobs of one kind, newest first; `added` puts a just started job on top. */
-export function JobList({ kind, added }: { kind: string; added: Job | null }) {
+export function JobList({ kind, added, summary }: { kind: string; added: Job | null; summary?: (job: Job) => ReactNode }) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -125,7 +126,7 @@ export function JobList({ kind, added }: { kind: string; added: Job | null }) {
   return (
     <Space orientation="vertical" style={{ width: "100%" }}>
       {jobs.map((j) => (
-        <JobPanel key={j.id} initial={j} onDeleted={(id) => setJobs((list) => list.filter((x) => x.id !== id))} />
+        <JobPanel key={j.id} initial={j} summary={summary} onDeleted={(id) => setJobs((list) => list.filter((x) => x.id !== id))} />
       ))}
     </Space>
   );

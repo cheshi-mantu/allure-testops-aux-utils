@@ -6,6 +6,8 @@ import { cancelJob, deleteJob, getJob, jobFile, listJobs, removeOrphanedJobDirs,
 import { exportLaunchDocument, type LaunchDocumentOptions } from "./launchDocument/export.js";
 import { STATUS_ORDER, type DocumentSections, type StatusKey } from "./launchDocument/render.js";
 import { exportLaunchReport, type LaunchReportOptions } from "./launchReport/export.js";
+import { applyTemplate, previewTemplate, TemplateError, type TemplateOptions, type TemplateTarget } from "./projectTemplate/run.js";
+import { SECTION_KEYS, SECTIONS, type SectionKey } from "./projectTemplate/sections.js";
 import { envValues, envVars, InvalidAqlError, isBadRequest, launchTags, listLaunches } from "./launches.js";
 import { TestOpsClient, TestOpsError } from "./testops.js";
 
@@ -177,6 +179,49 @@ app.post("/api/launch-document", (req, res) => {
   const options = parseLaunchDocument(req.body ?? {});
   const c = currentClient();
   res.status(202).json(startJob("launch-document", `Launch ${options.launchId}`, (ctx) => exportLaunchDocument(c, options, ctx)));
+});
+
+function parseTemplate(body: Record<string, unknown>): TemplateOptions {
+  const t = (body.target && typeof body.target === "object" ? body.target : {}) as Record<string, unknown>;
+  let target: TemplateTarget;
+  if (t.mode === "existing") {
+    target = { mode: "existing", projectId: positiveInt(t.projectId, "Target project ID") };
+  } else if (t.mode === "new") {
+    const name = String(t.name ?? "").trim();
+    const abbr = String(t.abbr ?? "").trim();
+    if (!name || name.length > 255) throw new HttpError(400, "The new project needs a name of up to 255 characters");
+    if (abbr.length > 2) throw new HttpError(400, "The abbreviation is 1 or 2 characters");
+    target = { mode: "new", name, abbr, description: String(t.description ?? ""), isPublic: t.isPublic === true };
+  } else {
+    throw new HttpError(400, 'target.mode must be "new" or "existing"');
+  }
+  const sections = Array.isArray(body.sections) ? body.sections.map(String) : [];
+  const unknown = sections.filter((k) => !(SECTION_KEYS as readonly string[]).includes(k));
+  if (unknown.length) throw new HttpError(400, `Unknown sections: ${unknown.join(", ")}`);
+  if (sections.length === 0) throw new HttpError(400, "Choose at least one section to copy");
+  return { sourceProjectId: positiveInt(body.sourceProjectId, "Source project ID"), target, sections: sections as SectionKey[] };
+}
+
+app.get("/api/project-template/sections", (_req, res) => {
+  res.json(SECTIONS.map((s) => ({ key: s.key, label: s.label, description: s.description })));
+});
+
+app.post("/api/project-template/preview", async (req, res) => {
+  requireConfigured();
+  try {
+    res.json(await previewTemplate(currentClient(), parseTemplate(req.body ?? {})));
+  } catch (e) {
+    if (e instanceof TemplateError) throw new HttpError(400, e.message);
+    throw e;
+  }
+});
+
+app.post("/api/project-template", (req, res) => {
+  requireConfigured();
+  const options = parseTemplate(req.body ?? {});
+  if (options.target.mode === "existing" && options.target.projectId === options.sourceProjectId) throw new HttpError(400, "The source and the target are the same project");
+  const c = currentClient();
+  res.status(202).json(startJob("project-template", `Project ${options.sourceProjectId} as a template`, (ctx) => applyTemplate(c, options, ctx)));
 });
 
 app.get("/api/jobs", (req, res) => {

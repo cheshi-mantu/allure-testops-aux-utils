@@ -14,7 +14,7 @@ A containerized React and Node.js application with auxiliary tools for Allure Te
 | Gherkin feature files with examples → test cases | planned |
 | Launch cleanup | planned |
 | Rollback of test case changes made after a point in time | planned |
-| Project as a template: a copy of a project with its custom fields, integrations, settings and environments | planned |
+| [Project as a template](#project-as-a-template): the configuration of a project copied into a new or an existing one | available |
 | Cleanup of custom field values, environment values and tags, showing the affected entities first | planned |
 
 ## Launch → Allure Report
@@ -140,6 +140,61 @@ The same as for the Allure report, and also:
 - the fields `manual`, `assignee`, `assigneeUser`, `testedBy` and `testedByUser` of `GET /api/rs/testresult?launchId=`
 
 Links in the document lead to `<endpoint>/launch/{id}`, `<endpoint>/testresult/{id}` and `<endpoint>/project/{projectId}/test-cases/{id}`.
+
+## Project as a template
+
+Copies the configuration of a project (not its test cases, launches or results) into a new project or into an existing one.
+
+1. Choose the source project and the target: a new project (name, abbreviation, description, public or not) or an existing one. Project names are unique in Allure TestOps, so the preview refuses a name another project has.
+2. Tick the sections to copy.
+3. **Preview** reads both projects and lists, section by section, what will be created, updated, removed, what is already the same and what has to be done by hand. Nothing is changed.
+4. **Copy** asks for confirmation and runs as a job. Its summary shows the counts per section and a link to the target project; the full list of actions with their outcomes can be downloaded as JSON.
+
+| Section | What is copied |
+| --- | --- |
+| Project settings | launch auto close and live doc settings, user display mode, project properties, labels with their values, release statuses and workflows (with the default one), cleanup rules, test case update policy |
+| Custom fields | custom fields of the project with their project values, required, locked and default value; mapping of result labels to custom fields |
+| Environments | mapping of result environment keys to environment variables |
+| Workflows | workflows of manual and automated test cases |
+| Test layers | mapping of result layer keys to test layers |
+| Roles | mapping of result member keys to roles |
+| Defect categories | shared categories and matchers are attached, the project's own are recreated |
+| Integrations | integrations linked to the project with their project settings, issue and test key mappings, export settings |
+| Webhooks | notification webhooks with headers, events and their enabled state |
+| Test case trees | trees by custom fields |
+| Shared filters | shared filters of test cases, launches and test results |
+| Dashboards | dashboards with their widgets, copied by Allure TestOps itself |
+| Access | groups and users with their permission sets |
+
+How entries are matched and changed:
+
+- Entries are matched by name, key or code. What the target lacks is created, what differs is updated, what is the same is left alone. Running the template again does only what is still left, so a run interrupted by errors can simply be repeated.
+- A new project comes with defaults of Allure TestOps (a few custom fields, environment and role mappings, workflows, trees, release statuses). Those the source does not have are removed, so the new project ends up like the source. In an existing project nothing is removed.
+- Custom fields, environment variables, workflows, test layers, roles and integrations themselves are shared by the whole instance: the template links the same ones to the target, it does not duplicate them.
+- Allure TestOps creates some entries by itself: writing a project setting (launch auto close, live doc, user display mode) also stores it as project properties. Project properties are therefore copied before the settings, and whenever creating an entry fails, the target is read again: an entry that is there by now is updated instead of being reported as failed.
+- A write that fails is not repeated, since Allure TestOps may have done it anyway; it is reported as failed and the next run picks it up.
+
+CI jobs are not copied: set them up in the target project when it is to run tests from a build server.
+
+Some differences are left to be done by hand, and the preview says so:
+
+- a default value of a custom field cannot be cleared through the API: if the target has one and the source does not, clear it in the project settings;
+- a custom field can be locked only when it has values in the project;
+- a custom field a tree of the project uses cannot be removed from the project: a default field of a new project that the source lacks stays while a tree still uses it (copy the trees too, and it goes).
+
+Some writes are checked by Allure TestOps against the outside world and may be refused: export settings of an integration are verified with the external system, and a webhook endpoint that resolves to a private address or does not resolve at all is rejected. Such actions are reported as failed with the reason.
+
+What cannot be copied, because Allure TestOps does not give it out:
+
+- project-level secrets of integrations: the target uses the integration's default secret until one is set in its settings;
+- filters other users keep private;
+- dashboards already present in the target under the same name are not overwritten.
+
+The API token owner keeps the access they get as the creator of a new project.
+
+### Allure TestOps API used
+
+`/api/rs/project`, `/projectsettings/*`, `/projectproperty`, `/project/{id}/label`, `/project/release-status`, `/project/release-workflow`, `/cleanerschema`, `/testcaseupdateschema`, `/project/{id}/cf`, `/cfproject/add-to-project`, `/cfproject/remove`, `/project/{id}/cfv`, `/cfschema`, `/evschema`, `/workflowschema`, `/testlayerschema`, `/roleschema`, `/project/{id}/category`, `/category`, `/project/{id}/categorymatcher`, `/categorymatcher`, `/integration/project`, `/issueschema`, `/testkeyschema`, `/integration/export`, `/notification/webhook`, `/tree`, `/filter`, `/dashboard`, `/project/access/{id}/group`, `/project/access/{id}/collaborator`, all under `/api/rs`, and `/api/uaa/account/me`.
 
 ## Running
 

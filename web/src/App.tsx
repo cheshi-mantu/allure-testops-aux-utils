@@ -1,9 +1,10 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Alert, Layout, Menu, Spin, Typography } from "antd";
-import { FileTextOutlined, ProfileOutlined, SettingOutlined } from "@ant-design/icons";
+import { CopyOutlined, FileTextOutlined, ProfileOutlined, SettingOutlined } from "@ant-design/icons";
 import { api, errorText, type PublicConfig } from "./api";
 import { LaunchDocumentPage } from "./LaunchDocumentPage";
 import { LaunchReportPage } from "./LaunchReportPage";
+import { ProjectTemplatePage } from "./ProjectTemplatePage";
 import { SettingsPage } from "./SettingsPage";
 
 /** A tool shown in the side menu. New tools are added here. */
@@ -18,6 +19,7 @@ interface Tool {
 const TOOLS: Tool[] = [
   { key: "launch-report", group: "Export", label: "Launch → Allure Report", icon: <FileTextOutlined />, render: () => <LaunchReportPage /> },
   { key: "launch-document", group: "Export", label: "Launch → HTML document", icon: <ProfileOutlined />, render: () => <LaunchDocumentPage /> },
+  { key: "project-template", group: "Projects", label: "Project as a template", icon: <CopyOutlined />, render: () => <ProjectTemplatePage /> },
 ];
 
 const SETTINGS = "settings";
@@ -45,8 +47,19 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    window.history.replaceState(null, "", `#${key}`);
+    if (window.location.hash !== `#${key}`) window.history.pushState(null, "", `#${key}`);
   }, [key]);
+
+  // Links to a tool and the browser's back and forward buttons.
+  useEffect(() => {
+    const onHash = () => setKey(initialKey());
+    window.addEventListener("hashchange", onHash);
+    window.addEventListener("popstate", onHash);
+    return () => {
+      window.removeEventListener("hashchange", onHash);
+      window.removeEventListener("popstate", onHash);
+    };
+  }, []);
 
   const configured = Boolean(config?.endpoint && config.tokenSet);
 

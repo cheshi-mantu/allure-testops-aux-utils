@@ -4,6 +4,7 @@
 // MOCK_FAILURE_RATE=0.1 makes that share of reads fail with a 500 or an HTML
 // page instead of JSON, the way an overloaded server sometimes answers.
 import { createServer } from "node:http";
+import { handleConfig, projectDefaults, seedConfig } from "./mock-config.mjs";
 
 const PORT = Number(process.env.MOCK_PORT ?? 9090);
 const TOKEN = process.env.MOCK_TOKEN ?? "mock-token";
@@ -60,6 +61,8 @@ function attachmentStep(owner, name, contentType, body, start) {
 function cf(id, name, ...values) {
   return { customField: { id, name }, values: values.map((v, i) => ({ id: id * 100 + i, name: v })) };
 }
+
+seedConfig(projects, "mock");
 
 // Twelve small launches per project; MOCK_LARGE_LAUNCH=20000 adds a big one to "Mobile App".
 const specs = projects.flatMap((p) => Array.from({ length: 12 }, (_, l) => ({ p, l, count: 40, name: null })));
@@ -384,6 +387,10 @@ function page(items, url) {
 }
 
 function send(res, status, body) {
+  if (status === 204 || body === null) {
+    res.writeHead(status);
+    return res.end();
+  }
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(body));
 }
@@ -413,7 +420,26 @@ createServer(async (req, res) => {
     return res.end("<!doctype html><html><script>window.__APP__={}</script></html>");
   }
 
+  let body = {};
+  if (req.method !== "GET") {
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    try {
+      body = raw ? JSON.parse(raw) : {};
+    } catch {
+      return send(res, 400, { message: "Malformed JSON" });
+    }
+  }
+
   if (path === "/api/uaa/account/me") return send(res, 200, { username: "mock" });
+  if (path === "/api/rs/project" && req.method === "POST") {
+    if (!body.name) return send(res, 400, { message: "name is required" });
+    if (projects.some((p) => p.name === body.name)) return send(res, 409, { message: "Validation error" });
+    const project = { id: Math.max(...projects.map((p) => p.id)) + 1, name: body.name, abbr: body.abbr ?? null, isPublic: Boolean(body.isPublic), description: body.description ?? null };
+    projects.push(project);
+    projectDefaults(project.id, "mock");
+    return send(res, 200, project);
+  }
   if (path === "/api/rs/project") return send(res, 200, page(projects, url));
   if ((m = /^\/api\/rs\/project\/(\d+)$/.exec(path))) {
     const p = projects.find((x) => x.id === Number(m[1]));
@@ -474,6 +500,7 @@ createServer(async (req, res) => {
     res.writeHead(200, { "Content-Type": a.contentType, "Content-Length": a.body.length });
     return res.end(a.body);
   }
+  if (handleConfig(req, url, body, { send: (status, b) => send(res, status, b), page: (items) => page(items, url) })) return;
   send(res, 404, { message: `Mock has no ${req.method} ${path}` });
 }).listen(PORT, () => {
   console.log(`Mock Allure TestOps on http://localhost:${PORT}, API token "${TOKEN}"${FAILURE_RATE ? `, failure rate ${FAILURE_RATE}` : ""}`);

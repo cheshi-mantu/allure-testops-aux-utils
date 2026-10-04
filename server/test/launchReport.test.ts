@@ -26,6 +26,7 @@ function context(): JobContext & { warnings: string[] } {
     signal: new AbortController().signal,
     warnings,
     title: () => {},
+    summary: () => {},
     phase: () => {},
     advance: () => {},
     log: () => {},

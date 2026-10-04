@@ -92,6 +92,20 @@ export class TestOpsClient {
     return text ? (JSON.parse(text) as T) : null;
   }
 
+  async patch<T>(path: string, body: unknown): Promise<T | null> {
+    return this.write<T>("PATCH", path, body);
+  }
+
+  async delete(path: string): Promise<void> {
+    await this.write("DELETE", path);
+  }
+
+  private async write<T>(method: "PATCH" | "DELETE", path: string, body?: unknown): Promise<T | null> {
+    const res = await this.slots.run(() => this.send(method, new URL(this.endpoint + path), "application/json", body));
+    const text = await res.text();
+    return text ? (JSON.parse(text) as T) : null;
+  }
+
   private async read(path: string, params: Record<string, string>, accept: string): Promise<Response> {
     const url = new URL(this.endpoint + path);
     for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
@@ -113,7 +127,7 @@ export class TestOpsClient {
     }
   }
 
-  private async send(method: "GET" | "POST", url: URL, accept: string, body?: unknown): Promise<Response> {
+  private async send(method: "GET" | "POST" | "PATCH" | "DELETE", url: URL, accept: string, body?: unknown): Promise<Response> {
     let res = await this.fetchWithAuth(method, url, accept, body);
     if (res.status === 401) {
       this.auth = null;
