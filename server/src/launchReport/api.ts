@@ -64,6 +64,11 @@ export interface ApiTestResult {
   message?: string | null;
   trace?: string | null;
   manual?: boolean;
+  /** Who runs a manual test, and who ran it. */
+  assignee?: string | null;
+  assigneeUser?: ApiUser | null;
+  testedBy?: string | null;
+  testedByUser?: ApiUser | null;
   hostId?: string | null;
   threadId?: string | null;
   flaky?: boolean;
@@ -75,6 +80,12 @@ export interface ApiTestResult {
   tags?: { id?: number; name: string }[] | null;
   links?: ApiLink[] | null;
   jobRun?: { id: number; name?: string | null; url?: string | null } | null;
+}
+
+export interface ApiUser {
+  username?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
 }
 
 /** A CI job run that reported results into the launch. */

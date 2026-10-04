@@ -31,9 +31,12 @@ RUN npm prune --omit=dev
 # ---------------------------------------------------------------- application (default target)
 FROM node:22-alpine AS app
 WORKDIR /app
+# A cap on the JavaScript heap keeps long exports from holding on to memory
+# they no longer use; raise it in compose if a container has more to give.
 ENV NODE_ENV=production \
     PORT=8080 \
-    DATA_DIR=/app/data
+    DATA_DIR=/app/data \
+    NODE_OPTIONS=--max-old-space-size=1024
 COPY --from=prod-deps /app/package.json ./
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/server/dist ./server/dist

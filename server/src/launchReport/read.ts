@@ -51,24 +51,42 @@ export function checkCancelled(ctx: JobContext): void {
   if (ctx.signal.aborted) throw new Error("Cancelled");
 }
 
+/** Parts of a test result read besides the result itself. */
+export interface ResultParts {
+  scenario: boolean;
+  fixtures: boolean;
+  customFields: boolean;
+  members: boolean;
+  issues: boolean;
+  environment: boolean;
+}
+
+const ALL_BUT_ENVIRONMENT: ResultParts = { scenario: true, fixtures: true, customFields: true, members: true, issues: true, environment: false };
+
 /**
- * Steps, fixtures, custom fields, members and issues of a test result, plus
- * its environment when asked. A part that cannot be read is left empty with a warning.
+ * The asked parts of a test result; the others stay empty and cost no
+ * request. A part that cannot be read is left empty with a warning.
  */
-export async function readResultDetails(client: TestOpsClient, result: ApiTestResult, warn: Warn, withEnvironment = false): Promise<ResultDetails> {
+export async function readResultDetails(
+  client: TestOpsClient,
+  result: ApiTestResult,
+  warn: Warn,
+  parts: ResultParts = ALL_BUT_ENVIRONMENT,
+): Promise<ResultDetails> {
   const part = <T>(what: string, path: string, fallback: T, params: Record<string, string> = {}) =>
     client.get<T>(path, params).catch((e: unknown) => {
       if (!(e instanceof TestOpsError && e.status === 404)) warn(what, `Test result ${result.id} "${result.name}": ${what} not exported: ${message(e)}`);
       return fallback;
     });
   const id = result.id;
+  const skip = <T>(value: T) => Promise.resolve(value);
   const [scenario, fixtures, customFields, members, issues, environment] = await Promise.all([
-    part<ApiScenario | null>("steps", `/api/rs/testresult/${id}/execution`, null, { v2: "true" }),
-    part<ApiFixture[]>("fixtures", `/api/rs/testresult/${id}/fixture`, [], { v2: "true" }),
-    part<ApiCustomFieldWithValues[]>("custom fields", `/api/rs/testresult/${id}/cfv`, [], { v2: "true" }),
-    part<ApiMember[]>("members", `/api/rs/testresult/${id}/members`, []),
-    part<ApiIssue[]>("issues", `/api/rs/testresult/${id}/issue`, []),
-    withEnvironment ? part<ApiEnvVarValue[]>("environment", `/api/rs/testresult/${id}/evv`, []) : Promise.resolve([]),
+    parts.scenario ? part<ApiScenario | null>("steps", `/api/rs/testresult/${id}/execution`, null, { v2: "true" }) : skip(null),
+    parts.fixtures ? part<ApiFixture[]>("fixtures", `/api/rs/testresult/${id}/fixture`, [], { v2: "true" }) : skip([]),
+    parts.customFields ? part<ApiCustomFieldWithValues[]>("custom fields", `/api/rs/testresult/${id}/cfv`, [], { v2: "true" }) : skip([]),
+    parts.members ? part<ApiMember[]>("members", `/api/rs/testresult/${id}/members`, []) : skip([]),
+    parts.issues ? part<ApiIssue[]>("issues", `/api/rs/testresult/${id}/issue`, []) : skip([]),
+    parts.environment ? part<ApiEnvVarValue[]>("environment", `/api/rs/testresult/${id}/evv`, []) : skip([]),
   ]);
   return {
     result,

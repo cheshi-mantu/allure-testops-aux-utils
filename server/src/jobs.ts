@@ -30,7 +30,8 @@ export interface JobView {
   error: string | null;
   warnings: string[];
   log: string[];
-  file: JobFile | null;
+  /** Files to download once the job is done, the main one first. */
+  files: JobFile[];
 }
 
 /** Handed to the job body to report progress and check for cancellation. */
@@ -66,8 +67,7 @@ class Job {
   error: string | null = null;
   readonly warnings: string[] = [];
   readonly log: string[] = [];
-  result: JobResult | null = null;
-  size = 0;
+  files: (JobResult & { size: number })[] = [];
 
   constructor(
     readonly kind: string,
@@ -88,14 +88,14 @@ class Job {
       error: this.error,
       warnings: this.warnings.slice(0, MAX_LOG_LINES),
       log: this.log.slice(-MAX_LOG_LINES),
-      file: this.result ? { name: this.result.name, size: this.size, contentType: this.result.contentType } : null,
+      files: this.files.map((f) => ({ name: f.name, size: f.size, contentType: f.contentType })),
     };
   }
 }
 
 const jobs = new Map<string, Job>();
 
-export function startJob(kind: string, title: string, body: (ctx: JobContext) => Promise<JobResult | null>): JobView {
+export function startJob(kind: string, title: string, body: (ctx: JobContext) => Promise<JobResult | JobResult[] | null>): JobView {
   prune();
   const job = new Job(kind, title);
   jobs.set(job.id, job);
@@ -126,8 +126,7 @@ export function startJob(kind: string, title: string, body: (ctx: JobContext) =>
   };
   void body(ctx).then(
     (result) => {
-      job.result = result;
-      if (result) job.size = statSync(result.path).size;
+      job.files = (Array.isArray(result) ? result : result ? [result] : []).map((f) => ({ ...f, size: statSync(f.path).size }));
       job.state = job.controller.signal.aborted ? "cancelled" : "done";
       job.phase = job.state === "done" ? "Done" : "Cancelled";
     },
@@ -155,9 +154,9 @@ export function listJobs(kind?: string): JobView[] {
     .map((j) => j.view());
 }
 
-export function jobFile(id: string): JobResult | null {
+export function jobFile(id: string, index = 0): JobResult | null {
   const job = jobs.get(id);
-  return job?.state === "done" ? job.result : null;
+  return job?.state === "done" ? (job.files[index] ?? null) : null;
 }
 
 export function cancelJob(id: string): boolean {

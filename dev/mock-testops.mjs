@@ -141,7 +141,12 @@ for (const { p, l, count, name } of specs) {
       layer: { id: 1, name: i % 2 ? "UI" : "API" },
       message: failed ? `Expected: 200\nActual: ${status === "failed" ? 500 : 404}` : null,
       trace: failed ? `java.lang.AssertionError: boom\n\tat com.example.${feature}Test.run(${feature}Test.java:${10 + i})` : null,
-      manual: false,
+      // Every tenth test is manual; half of them have an assignee.
+      manual: i % 10 === 7,
+      assignee: i % 20 === 7 ? users[i % 3] : null,
+      assigneeUser: i % 20 === 7 ? { username: users[i % 3], firstName: users[i % 3][0].toUpperCase() + users[i % 3].slice(1), lastName: "Tester" } : null,
+      testedBy: i % 10 === 7 && status ? users[(i + 1) % 3] : null,
+      testedByUser: i % 10 === 7 && status ? { username: users[(i + 1) % 3], firstName: null, lastName: null } : null,
       hostId: `agent-${i % 2}`,
       threadId: `worker-${i % 4}`,
       flaky: i % 11 === 3,

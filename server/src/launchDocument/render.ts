@@ -2,7 +2,19 @@
  * HTML of the launch document: one long page, readable in a browser and
  * printable to PDF. Collapsed sections open by themselves when printed.
  */
-import type { ApiAttachmentRow, ApiEnvVarValue, ApiIssue, ApiJobRun, ApiLaunch, ApiLink, ApiStatus, ApiStep, ApiTestResult, ResultDetails } from "../launchReport/api.js";
+import type {
+  ApiAttachmentRow,
+  ApiEnvVarValue,
+  ApiIssue,
+  ApiJobRun,
+  ApiLaunch,
+  ApiLink,
+  ApiStatus,
+  ApiStep,
+  ApiTestResult,
+  ApiUser,
+  ResultDetails,
+} from "../launchReport/api.js";
 import type { AttachmentOwner } from "../launchReport/convert.js";
 
 export type StatusKey = ApiStatus | "in_progress";
@@ -10,7 +22,7 @@ export type StatusKey = ApiStatus | "in_progress";
 /** Order of the status groups in the contents and in the list. */
 export const STATUS_ORDER: StatusKey[] = ["failed", "broken", "unknown", "skipped", "passed", "in_progress"];
 
-const STATUS_LABEL: Record<StatusKey, string> = {
+export const STATUS_LABEL: Record<StatusKey, string> = {
   failed: "Failed",
   broken: "Broken",
   unknown: "Unknown",
@@ -25,15 +37,46 @@ export function statusKey(status: ApiStatus | null | undefined): StatusKey {
 
 /** An attachment as it goes into the document. */
 export type Embedded =
-  | { kind: "image"; dataUri: string }
+  | { kind: "image"; type: string; data: Buffer }
   | { kind: "text"; text: string }
   /** Listed only, with the reason. */
   | { kind: "none"; reason: string };
 
+/** Optional parts of every test result in the document. */
+export interface DocumentSections {
+  scenario: boolean;
+  customFields: boolean;
+  environment: boolean;
+  attachments: boolean;
+}
+
+export const SECTION_LABEL: Record<keyof DocumentSections, string> = {
+  scenario: "scenario",
+  customFields: "custom fields",
+  environment: "environment variables",
+  attachments: "attachments",
+};
+
 export interface RenderContext {
   endpoint: string;
   projectId: number;
+  sections: DocumentSections;
   attachment: (owner: AttachmentOwner, row: ApiAttachmentRow) => Embedded;
+}
+
+function userName(user: ApiUser | null | undefined, username: string | null | undefined): string {
+  const full = [user?.firstName, user?.lastName].filter(Boolean).join(" ");
+  const login = user?.username || username || "";
+  return full && login ? `${full} (${login})` : full || login;
+}
+
+/** Who a manual test is assigned to, always shown for manual tests, and who ran it. */
+export function manualRows(r: ApiTestResult): [string, string][] {
+  if (!r.manual) return [];
+  const rows: [string, string][] = [["Assignee", userName(r.assigneeUser, r.assignee) || "not assigned"]];
+  const testedBy = userName(r.testedByUser, r.testedBy);
+  if (testedBy) rows.push(["Tested by", testedBy]);
+  return rows;
 }
 
 const ESCAPES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
@@ -101,7 +144,8 @@ export function sanitizeHtml(html: string, endpoint: string): string {
     .replace(/(href|src)\s*=\s*(["'])\/(?!\/)/gi, `$1=$2${endpoint}/`);
 }
 
-const UI = {
+/** Links into the Allure TestOps web UI. */
+export const UI = {
   launch: (endpoint: string, id: number) => `${endpoint}/launch/${id}`,
   testResult: (endpoint: string, id: number) => `${endpoint}/testresult/${id}`,
   testCase: (endpoint: string, projectId: number, id: number) => `${endpoint}/project/${projectId}/test-cases/${id}`,
@@ -144,6 +188,8 @@ details > summary { cursor: pointer; }
 ol.toc { margin: 4px 0 8px; padding-left: 28px; columns: 1; }
 ol.toc li { margin: 1px 0; }
 .result { margin: 28px 0 0; padding-top: 16px; border-top: 1px solid var(--line); }
+/* Printed, each test result starts a page; the first one follows the contents on a new page too. */
+@media print { #results { break-before: page; } .result + .result { break-before: page; } .result { border-top: none; margin-top: 0; padding-top: 0; } }
 /* Long documents: results off screen are not laid out until scrolled to. */
 @media screen { .result { content-visibility: auto; contain-intrinsic-size: auto 400px; } }
 .result-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
@@ -261,14 +307,25 @@ export interface Counts {
   total: number;
 }
 
-export function attributesSection(o: {
+export interface AttributesInput {
   launch: ApiLaunch;
   projectName: string;
   launchEnvironment: Environment;
   jobRuns: JobRunGroup[];
   counts: Counts;
   omitted: string[];
-}): string {
+}
+
+/** Job runs are listed when there is at least one; otherwise the launch environment is. */
+export function showJobRuns(groups: JobRunGroup[]): boolean {
+  return groups.length > 1 || (groups.length === 1 && groups[0].jobRun !== null);
+}
+
+export function jobRunTitle(j: ApiJobRun | null): string {
+  return j ? [j.job?.name, j.name].filter(Boolean).join(" ") || `Job run ${j.id}` : "Without a job run";
+}
+
+export function attributesSection(o: AttributesInput): string {
   const { launch } = o;
   const statusLine = STATUS_ORDER.filter((s) => o.counts.byStatus.get(s))
     .map((s) => `${badge(s)} ${o.counts.byStatus.get(s)}`)
@@ -289,11 +346,11 @@ ${linkList(launch.links ?? [])}
 <h4>Issues</h4>
 ${issueList(launch.issues ?? [])}
 `;
-  if (o.jobRuns.length > 1 || (o.jobRuns.length === 1 && o.jobRuns[0].jobRun)) {
+  if (showJobRuns(o.jobRuns)) {
     html += `<h4>Job runs</h4>`;
     for (const g of o.jobRuns) {
       const j = g.jobRun;
-      const title = j ? [j.job?.name, j.name].filter(Boolean).join(" ") || `Job run ${j.id}` : "Without a job run";
+      const title = jobRunTitle(j);
       const meta = j
         ? [j.url ? link(j.url, "Open in CI") : "", j.stage ? `stage: ${esc(j.stage.toLowerCase())}` : "", j.status ? `status: ${esc(j.status.toLowerCase())}` : ""]
         : [];
@@ -332,7 +389,7 @@ function attachmentHtml(owner: AttachmentOwner, row: ApiAttachmentRow, ctx: Rend
   const info = [row.contentType, formatSize(row.contentLength)].filter(Boolean).join(", ");
   const body =
     content.kind === "image"
-      ? `<img src="${content.dataUri}" alt="${esc(row.name)}" loading="lazy">`
+      ? `<img src="data:${esc(content.type)};base64,${content.data.toString("base64")}" alt="${esc(row.name)}" loading="lazy">`
       : content.kind === "text"
         ? `<pre>${esc(content.text)}</pre>`
         : `<p class="muted">${esc(content.reason)}</p>`;
@@ -352,7 +409,7 @@ function stepsHtml(steps: ApiStep[] | null | undefined, owner: AttachmentOwner, 
   const items: string[] = [];
   for (const step of steps ?? []) {
     if (step.type === "attachment") {
-      if (step.attachment && !step.attachment.missed) items.push(`<li class="step">${attachmentHtml(owner, step.attachment, ctx)}</li>`);
+      if (ctx.sections.attachments && step.attachment && !step.attachment.missed) items.push(`<li class="step">${attachmentHtml(owner, step.attachment, ctx)}</li>`);
       continue;
     }
     const status = step.status ?? null;
@@ -381,12 +438,14 @@ function splitTopLevel(steps: ApiStep[] | null | undefined): { steps: ApiStep[];
   return out;
 }
 
-function attributesTable(d: ResultDetails): string {
+function attributesTable(d: ResultDetails, sections: DocumentSections): string {
   const r = d.result;
-  const rows: [string, string][] = [];
-  for (const cf of d.customFields) {
-    const values = (cf.values ?? []).map((v) => esc(v.name)).join(", ");
-    if (values) rows.push([esc(cf.customField.name), values]);
+  const rows: [string, string][] = manualRows(r).map(([k, v]) => [esc(k), esc(v)]);
+  if (sections.customFields) {
+    for (const cf of d.customFields) {
+      const values = (cf.values ?? []).map((v) => esc(v.name)).join(", ");
+      if (values) rows.push([esc(cf.customField.name), values]);
+    }
   }
   const roles = new Map<string, string[]>();
   for (const m of d.members) {
@@ -398,9 +457,11 @@ function attributesTable(d: ResultDetails): string {
   if (r.tags?.length) rows.push(["Tags", r.tags.map((t) => esc(t.name)).join(", ")]);
   const params = (r.parameters ?? []).filter((p) => !p.hidden);
   if (params.length) rows.push(["Parameters", params.map((p) => `${esc(p.name)} = ${esc(p.value ?? "")}`).join("<br>")]);
-  const env: Environment = new Map();
-  addEnvironment(env, d.environment ?? []);
-  if (env.size) rows.push(["Environment", [...env].map(([n, v]) => `${esc(n)}: ${v.map(esc).join(", ")}`).join("<br>")]);
+  if (sections.environment) {
+    const env: Environment = new Map();
+    addEnvironment(env, d.environment ?? []);
+    rows.push(["Environment", env.size ? [...env].map(([n, v]) => `${esc(n)}: ${v.map(esc).join(", ")}`).join("<br>") : `<span class="muted">none</span>`]);
+  }
   const links = [...(r.links ?? []).filter((l) => l.url).map((l) => link(l.url, l.name || l.url || "")), ...d.issues.map((i) => link(i.url, i.name))];
   if (links.length) rows.push(["Links", links.join("<br>")]);
   if (r.hostId || r.threadId) rows.push(["Host / thread", esc([r.hostId, r.threadId].filter(Boolean).join(" / "))]);
@@ -443,17 +504,18 @@ export function resultSection(d: ResultDetails, ctx: RenderContext, jobRunName: 
           `<div class="fixture-title">${f.status ? statusIcon(f.status) : ""}<span>${title}: ${esc(f.name ?? "")}</span><span class="dur muted">${esc(formatDuration(f.start != null && f.stop != null ? f.stop - f.start : null))}</span></div>${isBad(f.status) ? errorHtml(f.message, f.trace) : ""}${stepsHtml(f.scenario?.steps, "fixture", ctx)}`,
       )
       .join("");
-  const scenario = fixtures("Set up", before) + stepsHtml(top.steps, "result", ctx) + fixtures("Tear down", after);
+  const scenario = ctx.sections.scenario ? fixtures("Set up", before) + stepsHtml(top.steps, "result", ctx) + fixtures("Tear down", after) : "";
+  const attachments = ctx.sections.attachments ? top.attachments : [];
   return `<section class="result" id="tr-${r.id}">
 <a class="top" href="#contents">contents</a>
 <div class="result-head">${badge(status)}<h3>${esc(r.name)} <span class="id">${r.id}</span></h3></div>
 ${r.fullName ? `<div class="muted">${esc(r.fullName)}</div>` : ""}
 <p class="meta">${meta.map((m) => `<span>${m}</span>`).join("")}</p>
 ${errorHtml(r.message, r.trace)}
-${attributesTable(d)}
+${attributesTable(d, ctx.sections)}
 ${descriptionHtml(r, ctx.endpoint)}
 ${scenario ? `<details class="section" open><summary>Scenario</summary>${scenario}</details>` : ""}
-${top.attachments.length ? `<details class="section"><summary>Attachments (${top.attachments.length})</summary>${top.attachments.map((a) => attachmentHtml("result", a, ctx)).join("")}</details>` : ""}
+${attachments.length ? `<details class="section"><summary>Attachments (${attachments.length})</summary>${attachments.map((a) => attachmentHtml("result", a, ctx)).join("")}</details>` : ""}
 </section>
 `;
 }

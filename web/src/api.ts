@@ -49,6 +49,8 @@ export interface LaunchReportInput {
 
 export type DocumentStatus = ResultStatus | "in_progress";
 
+export type DocumentSection = "scenario" | "customFields" | "environment" | "attachments";
+
 export interface LaunchDocumentInput {
   launchId: number;
   /** Empty means all. */
@@ -57,6 +59,10 @@ export interface LaunchDocumentInput {
   embedAttachments: boolean;
   maxAttachmentMb: number;
   maxTotalAttachmentMb: number;
+  /** A PDF next to the HTML page. */
+  pdf: boolean;
+  /** Optional parts of every test result. */
+  sections: Record<DocumentSection, boolean>;
 }
 
 export type JobState = "running" | "done" | "failed" | "cancelled";
@@ -74,7 +80,8 @@ export interface Job {
   error: string | null;
   warnings: string[];
   log: string[];
-  file: { name: string; size: number; contentType: string } | null;
+  /** Files to download once the job is done, the main one first. */
+  files: { name: string; size: number; contentType: string }[];
 }
 
 export class ApiError extends Error {
@@ -115,7 +122,7 @@ export const api = {
   job: (id: string) => call<Job>("GET", `/api/jobs/${id}`),
   cancelJob: (id: string) => call<Job>("POST", `/api/jobs/${id}/cancel`),
   deleteJob: (id: string) => call<void>("DELETE", `/api/jobs/${id}`),
-  jobFileUrl: (id: string, inline = false) => `/api/jobs/${id}/file${inline ? "?inline=true" : ""}`,
+  jobFileUrl: (id: string, index: number, inline = false) => `/api/jobs/${id}/files/${index}${inline ? "?inline=true" : ""}`,
 };
 
 export function errorText(e: unknown): string {

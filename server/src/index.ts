@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { getConfig, isConfigured, normalizeEndpoint, saveConfig, toPublic } from "./config.js";
 import { cancelJob, deleteJob, getJob, jobFile, listJobs, removeOrphanedJobDirs, startJob } from "./jobs.js";
 import { exportLaunchDocument, type LaunchDocumentOptions } from "./launchDocument/export.js";
-import { STATUS_ORDER, type StatusKey } from "./launchDocument/render.js";
+import { STATUS_ORDER, type DocumentSections, type StatusKey } from "./launchDocument/render.js";
 import { exportLaunchReport, type LaunchReportOptions } from "./launchReport/export.js";
 import { envValues, envVars, InvalidAqlError, isBadRequest, launchTags, listLaunches } from "./launches.js";
 import { TestOpsClient, TestOpsError } from "./testops.js";
@@ -150,6 +150,12 @@ function nonNegative(value: unknown, fallback: number, what: string): number {
   return n;
 }
 
+/** All sections unless switched off one by one. */
+function parseSections(value: unknown): DocumentSections {
+  const v = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
+  return { scenario: v.scenario !== false, customFields: v.customFields !== false, environment: v.environment !== false, attachments: v.attachments !== false };
+}
+
 function parseLaunchDocument(body: Record<string, unknown>): LaunchDocumentOptions {
   const statuses = Array.isArray(body.statuses) ? body.statuses.map(String) : [];
   const unknown = statuses.filter((s) => !(STATUS_ORDER as string[]).includes(s));
@@ -161,6 +167,8 @@ function parseLaunchDocument(body: Record<string, unknown>): LaunchDocumentOptio
     embedAttachments: body.embedAttachments !== false,
     maxAttachmentMb: nonNegative(body.maxAttachmentMb, 2, "maxAttachmentMb"),
     maxTotalAttachmentMb: nonNegative(body.maxTotalAttachmentMb, 200, "maxTotalAttachmentMb"),
+    pdf: body.pdf !== false,
+    sections: parseSections(body.sections),
   };
 }
 
@@ -181,8 +189,9 @@ app.get("/api/jobs/:id", (req, res) => {
   res.json(job);
 });
 
-app.get("/api/jobs/:id/file", (req, res) => {
-  const file = jobFile(req.params.id);
+app.get(["/api/jobs/:id/file", "/api/jobs/:id/files/:index"], (req, res) => {
+  const index = req.params.index === undefined ? 0 : Number(req.params.index);
+  const file = Number.isSafeInteger(index) ? jobFile(String(req.params.id), index) : null;
   if (!file) throw new HttpError(404, "The job has no file to download");
   // `inline` opens the file in the browser instead of saving it.
   if (req.query.inline === "true") res.type(file.contentType).sendFile(file.path);

@@ -7,7 +7,7 @@ A containerized React and Node.js application with auxiliary tools for Allure Te
 | Tool | State |
 | --- | --- |
 | [Launch → Allure Report](#launch--allure-report): a launch as a single-file Allure Report 3 | available |
-| [Launch → HTML document](#launch--html-document): a launch as one long page for reading and printing to PDF | available |
+| [Launch → HTML document](#launch--html-document): a launch as one long HTML page and a PDF | available |
 | Test cases → JSON files with attachments, importable back | planned |
 | Test cases → Markdown files | planned |
 | Markdown files → test cases | planned |
@@ -89,22 +89,46 @@ Each test result takes five requests (steps, fixtures, custom fields, members, i
 
 ## Launch → HTML document
 
-Writes the test results of one launch as one long HTML page, made for reading and for printing to PDF (in the browser: **Print / PDF**, then "Save as PDF"). The launch is chosen the same way as for the Allure report, with the same filter.
+Writes the test results of one launch as one long HTML page and, unless turned off, a PDF with the same content. The launch is chosen the same way as for the Allure report, with the same filter. Both files are offered next to each other in the job: **Open** shows a file in a new browser tab, **Download** saves it.
 
 The page has:
 
 1. **The launch name**, its ID and a link to the launch in Allure TestOps.
 2. **Launch attributes**: project, creation time and author, state, the number of test results by status and what was left out; tags, links, and issues with their keys and links to the issue tracker. When the launch was filled by several CI job runs, each job run is listed with its link to CI, stage, status, number of test results and its own environment variables (collected from its test results); otherwise the launch environment is shown.
 3. **Contents**: the test results grouped by status (failed, broken, unknown, skipped, passed, in progress), each a link to its section.
-4. **Test results**, in the order of the contents. Each one has its name and ID (the anchor the contents link to), a link to the test case and to the test result in Allure TestOps, start, duration and job run; the error (collapsed); a table of custom fields, members by role, layer, tags, parameters, environment, links and issues; the description, precondition and expected result; the scenario with set up and tear down fixtures, nested steps, step parameters and expected results; failed and broken steps are red, with their error collapsed under them; attachments of steps in place, and the test's own attachments in a collapsed section.
+4. **Test results**, in the order of the contents. Each one has its name and ID (the anchor the contents link to), a link to the test case and to the test result in Allure TestOps, start, duration and job run; the error (collapsed); a table with the assignee and the tester of a manual test, custom fields, members by role, layer, tags, parameters, the environment variables of the test result, links and issues; the description, precondition and expected result; the scenario with set up and tear down fixtures, nested steps, step parameters and expected results; failed and broken steps are red, with their error collapsed under them; attachments of steps in place, and the test's own attachments in a collapsed section.
 
-Images and text attachments (logs, JSON, XML and so on) are embedded up to the chosen size per attachment and in total; other types (video, archives) and those over the limits are listed by name, type and size. **Expand all** and **Collapse all** open and close every section; collapsed sections are printed open, also by converters that run no scripts.
+Images and text attachments (logs, JSON, XML and so on) are embedded up to the chosen size per attachment and in total; other types (video, archives) and those over the limits are listed by name, type and size. **Expand all** and **Collapse all** open and close every section of the HTML page.
+
+### Printing and PDF
+
+Printed from the browser, the HTML page starts the test results on a new page and every test result on a page of its own; collapsed sections are printed open, also by converters that run no scripts.
+
+The PDF is drawn by the application itself (no browser is involved), on A4 pages:
+
+- the same parts as the HTML page, every test result on a page of its own, everything expanded;
+- page numbers at the bottom, entries of the contents link to their test results, bookmarks group the test results by status;
+- PNG and JPEG images are embedded; other image formats are mentioned and shown only in the HTML page;
+- text attachments are cut at 200 lines; descriptions keep their paragraphs and lists but not their formatting.
 
 Options: which statuses to include (all by default), earlier attempts of retried tests (left out by default), whether to embed attachments, and the size limits.
 
+### Sections
+
+Every test result always has its name, status, ID, links to the test case and the test result, start, duration, job run, error, description, members, tags, parameters and links; a manual test also always has its assignee ("not assigned" when there is none) and, once run, the tester. These sections can be left out:
+
+| Section | What it is |
+| --- | --- |
+| Scenario | steps, set up and tear down fixtures, with the attachments of steps |
+| Custom fields | the custom fields of the test result |
+| Environment variables | the environment of the test result (each variable with its values) |
+| Attachments | attachments of the test and of its steps |
+
+All sections are on by default. The document says which ones were left out, under **Left out** in the launch attributes. A section left out is not read from Allure TestOps, so the export also gets faster. The chosen options are remembered in the browser.
+
 ### Large launches
 
-The document is written in batches of 100 test results, so the application's memory does not grow with the launch: an export of 20 000 test results from the mock stays at about 530 MB of memory and gives a 57 MB file. Reading takes 5 or 6 requests per test result (6 when the launch has several job runs), at most 8 at a time, so tens of thousands of test results take minutes on a real instance. The browser shows such a page well: sections off screen are not laid out until scrolled to. For a printable PDF of a big launch, choose the statuses that matter (for example failed and broken) and keep attachments small.
+Both files are written in batches of 100 test results, so the application's memory does not grow with the launch. An export of 20 000 test results from the mock takes under a minute, needs about 200 MB of JavaScript heap and gives a 62 MB HTML page and a PDF of 20 268 pages (79 MB). The image limits the heap to 1024 MB (`AUX_UTILS_HEAP_MB` in `docker-compose.yml`). Reading takes up to 6 requests per test result (fewer with sections left out), at most 8 at a time, so tens of thousands of test results take minutes on a real instance. The browser shows such a page well: sections off screen are not laid out until scrolled to. For a PDF that people will actually read, choose the statuses that matter (for example failed and broken).
 
 ### Allure TestOps API used
 
@@ -113,6 +137,7 @@ The same as for the Allure report, and also:
 - `GET /api/rs/project/{id}`
 - `GET /api/rs/launch/{id}/job`
 - `GET /api/rs/testresult/{id}/evv`
+- the fields `manual`, `assignee`, `assigneeUser`, `testedBy` and `testedByUser` of `GET /api/rs/testresult?launchId=`
 
 Links in the document lead to `<endpoint>/launch/{id}`, `<endpoint>/testresult/{id}` and `<endpoint>/project/{projectId}/test-cases/{id}`.
 

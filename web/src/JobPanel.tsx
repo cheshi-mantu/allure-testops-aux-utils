@@ -13,7 +13,10 @@ const STATE_TAG: Record<JobState, { color: string; label: string }> = {
   cancelled: { color: "default", label: "Cancelled" },
 };
 
-/** Polls a job while it runs; offers its file once it is done. */
+/** Files a browser shows by itself; others are only downloaded. */
+const viewable = (contentType: string) => contentType.startsWith("text/html") || contentType === "application/pdf";
+
+/** Polls a job while it runs; offers its files once it is done. */
 export function JobPanel({ initial, onDeleted }: { initial: Job; onDeleted: (id: string) => void }) {
   const [job, setJob] = useState(initial);
   const [error, setError] = useState<string | null>(null);
@@ -51,23 +54,13 @@ export function JobPanel({ initial, onDeleted }: { initial: Job; onDeleted: (id:
       }
       extra={
         <Space>
-          {job.state === "done" && job.file?.contentType.startsWith("text/html") && (
-            <Button icon={<ExportOutlined />} href={api.jobFileUrl(job.id, true)} target="_blank" rel="noopener">
-              Open
-            </Button>
-          )}
-          {job.state === "done" && job.file && (
-            <Button type="primary" icon={<DownloadOutlined />} href={api.jobFileUrl(job.id)}>
-              Download {formatSize(job.file.size)}
-            </Button>
-          )}
           {job.state === "running" && (
             <Button icon={<StopOutlined />} onClick={() => act(() => api.cancelJob(job.id).then(setJob))}>
               Cancel
             </Button>
           )}
           {job.state !== "running" && (
-            <Button icon={<DeleteOutlined />} title="Delete the job and its file" onClick={() => act(() => api.deleteJob(job.id).then(() => onDeleted(job.id)))} />
+            <Button icon={<DeleteOutlined />} title="Delete the job and its files" onClick={() => act(() => api.deleteJob(job.id).then(() => onDeleted(job.id)))} />
           )}
         </Space>
       }
@@ -82,7 +75,22 @@ export function JobPanel({ initial, onDeleted }: { initial: Job; onDeleted: (id:
             <Progress percent={percent} status="active" showInfo={percent !== undefined} />
           </div>
         )}
-        {job.file && job.state === "done" && <Typography.Text type="secondary">{job.file.name}</Typography.Text>}
+        {job.state === "done" &&
+          job.files.map((f, i) => (
+            <div key={f.name} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <Typography.Text style={{ minWidth: 0, flex: "1 1 240px" }} ellipsis={{ tooltip: f.name }}>
+                {f.name}
+              </Typography.Text>
+              {viewable(f.contentType) && (
+                <Button size="small" icon={<ExportOutlined />} href={api.jobFileUrl(job.id, i, true)} target="_blank" rel="noopener">
+                  Open
+                </Button>
+              )}
+              <Button size="small" type="primary" icon={<DownloadOutlined />} href={api.jobFileUrl(job.id, i)}>
+                Download {formatSize(f.size)}
+              </Button>
+            </div>
+          ))}
         {job.error && <Alert type="error" showIcon title={job.error} />}
         {error && <Alert type="warning" showIcon title={error} />}
         {job.warnings.length > 0 && (

@@ -22,6 +22,9 @@ services:
       # The UI has no login of its own and acts with the saved API token: it is
       # published on this machine only. Use "8080:8080" on a trusted network only.
       - "127.0.0.1:${AUX_UTILS_PORT:-8080}:8080"
+    environment:
+      # JavaScript heap of the application; 1024 MB is enough for documents of tens of thousands of test results.
+      NODE_OPTIONS: --max-old-space-size=${AUX_UTILS_HEAP_MB:-1024}
     volumes:
       - aux-utils-data:/app/data
 
