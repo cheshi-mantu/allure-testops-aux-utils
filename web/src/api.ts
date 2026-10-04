@@ -1,0 +1,116 @@
+export interface PublicConfig {
+  endpoint: string;
+  tokenSet: boolean;
+  tokenHint: string;
+}
+
+export interface Project {
+  id: number;
+  name: string;
+}
+
+export interface IdName {
+  id: number;
+  name: string;
+}
+
+export type ResultStatus = "passed" | "failed" | "broken" | "skipped" | "unknown";
+
+export interface LaunchRow {
+  id: number;
+  name: string;
+  closed: boolean;
+  createdDate: number | null;
+  createdBy: string | null;
+  tags: string[];
+  env: { name: string; value: string }[];
+  /** null when the counts could not be read. */
+  statistic: { status: ResultStatus | null; count: number }[] | null;
+}
+
+export interface LaunchList {
+  launches: LaunchRow[];
+  /** All launches matching the filter; the latest are listed. */
+  total: number;
+}
+
+export type GroupBy = "auto" | "suites" | "behaviors" | "packages" | "none";
+export type Theme = "auto" | "light" | "dark";
+
+export interface LaunchReportInput {
+  launchId: number;
+  reportName: string;
+  includeAttachments: boolean;
+  maxAttachmentMb: number;
+  includeRetries: boolean;
+  groupBy: GroupBy;
+  theme: Theme;
+}
+
+export type JobState = "running" | "done" | "failed" | "cancelled";
+
+export interface Job {
+  id: string;
+  kind: string;
+  title: string;
+  state: JobState;
+  phase: string;
+  done: number;
+  total: number;
+  startedAt: number;
+  finishedAt: number | null;
+  error: string | null;
+  warnings: string[];
+  log: string[];
+  file: { name: string; size: number; contentType: string } | null;
+}
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
+async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method,
+    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (res.status === 204) return undefined as T;
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(payload.error ?? res.statusText, res.status);
+  return payload as T;
+}
+
+export const api = {
+  getConfig: () => call<PublicConfig>("GET", "/api/config"),
+  testConfig: (c: { endpoint: string; token: string }) => call<{ projects: number }>("POST", "/api/config/test", c),
+  saveConfig: (c: { endpoint: string; token: string }) => call<PublicConfig>("PUT", "/api/config", c),
+  projects: () => call<Project[]>("GET", "/api/projects"),
+  launches: (projectId: number, q: string, aql: string) =>
+    call<LaunchList>("GET", `/api/projects/${projectId}/launches?${new URLSearchParams({ q, aql })}`),
+  launchTags: (projectId: number, q: string) => call<IdName[]>("GET", `/api/projects/${projectId}/launch-tags?${new URLSearchParams({ q })}`),
+  envVars: (q: string) => call<IdName[]>("GET", `/api/env-vars?${new URLSearchParams({ q })}`),
+  envValues: (projectId: number, envVarId: number, q: string) =>
+    call<IdName[]>("GET", `/api/projects/${projectId}/env-vars/${envVarId}/values?${new URLSearchParams({ q })}`),
+  startLaunchReport: (input: LaunchReportInput) => call<Job>("POST", "/api/launch-report", input),
+  jobs: (kind: string) => call<Job[]>("GET", `/api/jobs?kind=${encodeURIComponent(kind)}`),
+  job: (id: string) => call<Job>("GET", `/api/jobs/${id}`),
+  cancelJob: (id: string) => call<Job>("POST", `/api/jobs/${id}/cancel`),
+  deleteJob: (id: string) => call<void>("DELETE", `/api/jobs/${id}`),
+  jobFileUrl: (id: string, inline = false) => `/api/jobs/${id}/file${inline ? "?inline=true" : ""}`,
+};
+
+export function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+export function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}

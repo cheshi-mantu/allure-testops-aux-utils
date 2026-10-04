@@ -1,0 +1,45 @@
+{
+  "name": "allure-testops-aux-utils",
+  "version": "0.1.0",
+  "description": "Auxiliary utilities for Allure TestOps: exports, imports and cleanups over the public REST API",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "concurrently -n server,web \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "tsx watch server/src/index.ts",
+    "dev:web": "vite",
+    "dev:mock": "node dev/mock-testops.mjs",
+    "build": "npm run build:server && npm run build:web",
+    "build:server": "tsc -p server/tsconfig.json",
+    "build:web": "tsc -p web/tsconfig.json --noEmit && vite build",
+    "typecheck": "tsc -p server/tsconfig.json --noEmit && tsc -p server/test/tsconfig.json && tsc -p web/tsconfig.json --noEmit",
+    "test": "vitest run",
+    "start": "node server/dist/index.js"
+  },
+  "dependencies": {
+    "@allurereport/core": "3.20.0",
+    "@allurereport/plugin-awesome": "3.20.0",
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "@ant-design/icons": "^6.3.4",
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.20.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "antd": "^6.6.5",
+    "concurrently": "^10.0.5",
+    "dayjs": "^1.11.23",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1",
+    "vitest": "^5.0.2"
+  }
+}

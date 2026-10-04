@@ -1,0 +1,44 @@
+# Local build from source, with a fake Allure TestOps to try everything
+# without a real instance.
+#
+#   docker compose -f dev-compose.yml up -d --build              # app + mock
+#   docker compose -f dev-compose.yml run --rm --build tests     # unit and end-to-end tests
+#
+# In the UI (http://localhost:8080) connect to the mock:
+#   endpoint  http://mock:9090
+#   API token mock-token
+#
+# Settings and produced files live in the "aux-utils-dev-data" volume.
+name: allure-testops-aux-utils-dev
+
+services:
+  aux-utils:
+    image: allure-testops-aux-utils:local
+    build:
+      context: .
+      target: app
+    ports:
+      - "127.0.0.1:${AUX_UTILS_PORT:-8080}:8080"
+    volumes:
+      - aux-utils-dev-data:/app/data
+    depends_on:
+      - mock
+
+  mock:
+    build:
+      context: .
+      target: mock
+    ports:
+      - "127.0.0.1:9090:9090"
+    environment:
+      # Share of reads answered with a 500 or an HTML page, e.g. 0.05.
+      MOCK_FAILURE_RATE: ${MOCK_FAILURE_RATE:-0}
+
+  tests:
+    build:
+      context: .
+      target: test
+    profiles: ["test"]
+
+volumes:
+  aux-utils-dev-data:

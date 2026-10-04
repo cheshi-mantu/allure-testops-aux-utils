@@ -1,0 +1,29 @@
+# Allure TestOps aux utils for end users: runs the published image from
+# GitHub Container Registry.
+#
+#   docker compose up -d
+#   open http://localhost:8080
+#
+#   AUX_UTILS_TAG=0.1.0 docker compose up -d     # a specific release
+#
+# The connection settings and the files produced by the tools are kept in the
+# "aux-utils-data" volume, so they survive `docker compose down` / `up` and
+# image upgrades. `docker compose down -v` deletes them. Building from source
+# is in dev-compose.yml.
+name: allure-testops-aux-utils
+
+services:
+  aux-utils:
+    image: ghcr.io/cheshi-mantu/allure-testops-aux-utils:${AUX_UTILS_TAG:-latest}
+    pull_policy: always
+    container_name: allure-testops-aux-utils
+    restart: unless-stopped
+    ports:
+      # The UI has no login of its own and acts with the saved API token: it is
+      # published on this machine only. Use "8080:8080" on a trusted network only.
+      - "127.0.0.1:${AUX_UTILS_PORT:-8080}:8080"
+    volumes:
+      - aux-utils-data:/app/data
+
+volumes:
+  aux-utils-data:
