@@ -289,6 +289,8 @@ function parseAql(src) {
     return { attr, key, op, value: value() };
   };
   const unary = () => {
+    // `true` and `false` alone select all or nothing.
+    if (peek() === "true" || peek() === "false") return { all: tokens[i++].t === "true" };
     if (peek() === "not") {
       take("not");
       return { not: unary() };
@@ -325,6 +327,7 @@ function parseAql(src) {
 
 function matches(e, l) {
   if (!e) return true;
+  if ("all" in e) return e.all;
   if (e.not) return !matches(e.not, l);
   if (e.and) return e.and.every((x) => matches(x, l));
   if (e.or) return e.or.some((x) => matches(x, l));
@@ -482,6 +485,12 @@ createServer(async (req, res) => {
   if ((m = /^\/api\/rs\/launch\/(\d+)(\/env)?$/.exec(path))) {
     const l = launches.find((x) => x.id === Number(m[1]));
     if (!l) return send(res, 404, { message: "Launch not found" });
+    if (req.method === "DELETE" && !m[2]) {
+      launches.splice(launches.indexOf(l), 1);
+      // Some deletions take effect but answer with a server error, as under load.
+      if (l.id % 7 === 0) return send(res, 500, { message: "An unexpected error occurred" });
+      return send(res, 204, null);
+    }
     return send(res, 200, m[2] ? l.env : launchDto(l));
   }
   if (path === "/api/rs/testresult") {

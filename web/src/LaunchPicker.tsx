@@ -6,7 +6,7 @@ import { LaunchFilter } from "./LaunchFilter";
 
 const PROJECT_KEY = "launchReport.projectId";
 
-const STATUS_COLORS: Record<ResultStatus | "in progress", string> = {
+export const STATUS_COLORS: Record<ResultStatus | "in progress", string> = {
   passed: "green",
   failed: "red",
   broken: "orange",

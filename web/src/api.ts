@@ -198,6 +198,50 @@ export interface RollbackApplySummary {
   failed: number;
 }
 
+export interface LaunchCleanupInput {
+  projectId: number;
+  keepDays: number;
+  aql: string;
+  onlyClosed: boolean;
+  threads: number;
+}
+
+export interface CleanupLaunch {
+  id: number;
+  name: string;
+  url: string;
+  createdDate: number | null;
+  createdBy: string | null;
+  closed: boolean;
+  tags: string[];
+  env: string[];
+  statistic: Partial<Record<ResultStatus, number>> | null;
+  results: number | null;
+}
+
+export interface LaunchCleanupPlan {
+  project: Project;
+  options: LaunchCleanupInput;
+  before: number;
+  rql: string;
+  launches: CleanupLaunch[];
+}
+
+export interface LaunchCleanupScanSummary {
+  project: Project;
+  before: number;
+  found: number;
+  read: number;
+  results: number;
+}
+
+export interface LaunchCleanupDeleteSummary {
+  project: Project;
+  deleted: number;
+  skipped: number;
+  failed: number;
+}
+
 export type JobState = "running" | "done" | "failed" | "cancelled";
 
 export interface Job {
@@ -264,6 +308,10 @@ export const api = {
   rollbackScan: (input: RollbackScanInput) => call<Job>("POST", "/api/testcase-rollback/scan", input),
   rollbackPlan: (jobId: string) => call<RollbackPlan>("GET", `/api/testcase-rollback/plan/${jobId}`),
   rollbackApply: (planJobId: string, testCaseIds: number[]) => call<Job>("POST", "/api/testcase-rollback", { planJobId, testCaseIds }),
+  launchCleanupCount: (input: LaunchCleanupInput) => call<{ count: number }>("POST", "/api/launch-cleanup/count", input),
+  launchCleanupScan: (input: LaunchCleanupInput) => call<Job>("POST", "/api/launch-cleanup/scan", input),
+  launchCleanupPlan: (jobId: string) => call<LaunchCleanupPlan>("GET", `/api/launch-cleanup/plan/${jobId}`),
+  launchCleanupDelete: (planJobId: string, launchIds: number[]) => call<Job>("POST", "/api/launch-cleanup", { planJobId, launchIds }),
   jobs: (kind: string) => call<Job[]>("GET", `/api/jobs?kind=${encodeURIComponent(kind)}`),
   job: (id: string) => call<Job>("GET", `/api/jobs/${id}`),
   cancelJob: (id: string) => call<Job>("POST", `/api/jobs/${id}/cancel`),
