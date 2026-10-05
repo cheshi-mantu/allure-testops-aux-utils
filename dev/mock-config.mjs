@@ -25,6 +25,13 @@ function cfValue(fieldName, name, global = false) {
   if (!v) cfValues.push((v = { id: id(), customFieldId: cf(fieldName).id, name, global }));
   return v;
 }
+/** Values of test cases: `{ testCaseId, projectId, valueId, deleted }`, deleted ones are in the recycle bin. */
+const tcValues = [];
+let tcSeq = 500_000;
+function useValue(projectId, value, count, deleted = false) {
+  for (let i = 0; i < count; i++) tcValues.push({ testCaseId: tcSeq++, projectId, valueId: value.id, deleted });
+}
+const liveCount = (projectId, valueId) => tcValues.filter((r) => r.projectId === projectId && r.valueId === valueId && !r.deleted).length;
 for (const p of ["High", "Medium", "Low"]) cfValue("Priority", p, true);
 cf("Priority").defaultCustomFieldValueId = cfValue("Priority", "Medium", true).id;
 
@@ -34,6 +41,7 @@ function linkField(projectId, fieldId) {
   const field = customFields.find((f) => f.id === fieldId);
   if (!field) return;
   t.cfProject.push({ projectId, customFieldId: fieldId, required: field.required, locked: false, defaultCustomFieldValueId: field.defaultCustomFieldValueId });
+  for (const v of cfValues) if (v.customFieldId === fieldId && v.global) cfValueProjects.add(`${v.id}:${projectId}`);
 }
 
 const envVarsById = new Map([
@@ -120,6 +128,13 @@ export function seedConfig(projects, owner) {
   for (const team of ["Checkout squad", "Search squad"]) cfValueProjects.add(`${cfValue("Team", team).id}:${src}`);
   cfValueProjects.add(`${cfValue("Team", "Platform").id}:${second}`);
   for (const comp of ["Cart-svc", "Search-svc"]) cfValueProjects.add(`${cfValue("Component", comp).id}:${src}`);
+  // Test cases with values: some values are unused, one only in a deleted test case, one used without being linked.
+  cfValueProjects.add(`${cfValue("Team", "Legacy squad").id}:${src}`);
+  useValue(src, cfValue("Team", "Checkout squad"), 3);
+  useValue(src, cfValue("Team", "Legacy squad"), 1, true);
+  useValue(src, cfValue("Component", "Cart-svc"), 2);
+  useValue(src, cfValue("Component", "Payments"), 1);
+  useValue(src, cfValue("Priority", "High", true), 4);
   // The source dropped one default (its tree first: a field a tree uses stays) and has its own mappings.
   t.trees.find((r) => r.projectId === src && r.name === "Features").fieldIds = [cf("Feature").id];
   t.cfProject = t.cfProject.filter((r) => !(r.projectId === src && r.customFieldId === cf("Story").id));
@@ -307,8 +322,11 @@ export function handleConfig(req, url, body, h) {
     if (method === "GET") {
       const fieldId = Number(q("customFieldId"));
       const globalOnly = q("global");
-      const list = cfValues.filter((v) => v.customFieldId === fieldId && (v.global || cfValueProjects.has(`${v.id}:${projectId}`)) && (globalOnly === null || String(v.global) === globalOnly));
-      return send(200, page(list.map((v) => ({ id: v.id, name: v.name, global: v.global, customField: ref(customFields, v.customFieldId) })))), true;
+      // Values linked to the project or used by its test cases.
+      const list = cfValues.filter(
+        (v) => v.customFieldId === fieldId && (cfValueProjects.has(`${v.id}:${projectId}`) || liveCount(projectId, v.id) > 0) && (globalOnly === null || String(v.global) === globalOnly),
+      );
+      return send(200, page(list.map((v) => ({ id: v.id, name: v.name, global: v.global, customField: ref(customFields, v.customFieldId), testCasesCount: liveCount(projectId, v.id) })))), true;
     }
     if (method === "POST") {
       const field = customFields.find((f) => f.id === body.customField?.id);
@@ -319,6 +337,30 @@ export function handleConfig(req, url, body, h) {
       cfValueProjects.add(`${v.id}:${projectId}`);
       return send(200, { id: v.id, name: v.name, global: false, customField: ref(customFields, v.customFieldId) }), true;
     }
+  }
+
+  if ((m = /^\/api\/rs\/project\/(\d+)\/cfv\/(\d+)$/.exec(path)) && method === "DELETE") {
+    const projectId = Number(m[1]);
+    const v = cfValues.find((x) => x.id === Number(m[2]));
+    if (!v) return send(404, { message: "Custom field value not found" }), true;
+    const link = t.cfProject.find((r) => r.projectId === projectId && r.customFieldId === v.customFieldId);
+    if (!link) return send(404, { message: "Custom field not found" }), true;
+    // Test cases of the project lose the value, deleted ones too.
+    for (let i = tcValues.length - 1; i >= 0; i--) if (tcValues[i].projectId === projectId && tcValues[i].valueId === v.id) tcValues.splice(i, 1);
+    cfValueProjects.delete(`${v.id}:${projectId}`);
+    if (link.defaultCustomFieldValueId === v.id) link.defaultCustomFieldValueId = null;
+    const elsewhere = tcValues.some((r) => r.valueId === v.id) || [...cfValueProjects].some((k) => k.startsWith(`${v.id}:`));
+    if (!elsewhere) cfValues.splice(cfValues.indexOf(v), 1);
+    return send(204, null), true;
+  }
+  if (path === "/api/rs/testcase/query/validate" && method === "GET") {
+    const deleted = q("deleted") === "true";
+    const r = /^cf\[(-?\d+)\]\s+in\s+\[([\d,\s]*)\]$/.exec(q("rql") ?? "");
+    if (!r) return send(200, { valid: false }), true;
+    const ids = new Set(r[2].split(",").map((x) => Number(x.trim())).filter(Boolean));
+    const fieldValueIds = new Set(cfValues.filter((v) => v.customFieldId === Number(r[1]) && ids.has(v.id)).map((v) => v.id));
+    const cases = new Set(tcValues.filter((x) => x.projectId === pid() && x.deleted === deleted && fieldValueIds.has(x.valueId)).map((x) => x.testCaseId));
+    return send(200, { valid: true, count: cases.size }), true;
   }
 
   if ((m = /^\/api\/rs\/project\/(\d+)\/label(\/value)?$/.exec(path))) {
@@ -461,6 +503,6 @@ export function handleConfig(req, url, body, h) {
     return send(200, null), true;
   }
 
-  if (path === "/mock/config") return send(200, t), true;
+  if (path === "/mock/config") return send(200, { ...t, cfValues, cfValueProjects: [...cfValueProjects], tcValues }), true;
   return false;
 }

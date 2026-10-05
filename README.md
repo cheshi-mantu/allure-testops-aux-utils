@@ -13,9 +13,10 @@ A containerized React and Node.js application with auxiliary tools for Allure Te
 | Markdown files → test cases | planned |
 | Gherkin feature files with examples → test cases | planned |
 | Launch cleanup | planned |
-| Rollback of test case changes made after a point in time | planned |
+| [Rollback of test case changes](#rollback-of-test-case-changes): test cases taken back to how they were at a point in time, previewed first | available |
 | [Project as a template](#project-as-a-template): the configuration of a project copied into a new or an existing one | available |
-| Cleanup of custom field values, environment values and tags, showing the affected entities first | planned |
+| [Unused custom field values](#unused-custom-field-values): values of custom fields no test case of a project uses, checked and deleted | available |
+| Cleanup of environment values and tags, showing the affected entities first | planned |
 
 ## Launch → Allure Report
 
@@ -195,6 +196,54 @@ The API token owner keeps the access they get as the creator of a new project.
 ### Allure TestOps API used
 
 `/api/rs/project`, `/projectsettings/*`, `/projectproperty`, `/project/{id}/label`, `/project/release-status`, `/project/release-workflow`, `/cleanerschema`, `/testcaseupdateschema`, `/project/{id}/cf`, `/cfproject/add-to-project`, `/cfproject/remove`, `/project/{id}/cfv`, `/cfschema`, `/evschema`, `/workflowschema`, `/testlayerschema`, `/roleschema`, `/project/{id}/category`, `/category`, `/project/{id}/categorymatcher`, `/categorymatcher`, `/integration/project`, `/issueschema`, `/testkeyschema`, `/integration/export`, `/notification/webhook`, `/tree`, `/filter`, `/dashboard`, `/project/access/{id}/group`, `/project/access/{id}/collaborator`, all under `/api/rs`, and `/api/uaa/account/me`.
+
+## Rollback of test case changes
+
+Takes test cases back to how they were at a point in time, from their change log. Useful after an import, a bulk edit or an automated upload changed many test cases the wrong way.
+
+1. Choose a project, filter its test cases with AQL (the filter of the test case list, `true` for all), the date and time to roll back to, and the attributes to restore. **Count test cases** tells how many match.
+2. **Find changes** reads the change log of the test cases and shows, per test case, every attribute that changed after the date with its current value and the value it gets back, and who made the changes. Nothing is changed yet.
+3. Uncheck the test cases to leave as they are, then **Roll back**.
+
+What is restored: name, description, precondition, expected result, automated, workflow, status, layer, tags, custom fields, members and issues. The full name can be restored too, it is off by default: it ties a test case to its automated results. Scenarios, attachments and links are not in the change log of Allure TestOps and stay as they are.
+
+How it works:
+
+- The change log of every test case of the filter is read. **Only test cases modified after the date** (off by default) adds `lastModifiedDate > <date>` to the filter and reads far fewer change logs on a large project, but some changes, custom field ones among them, are logged without moving the modification date of a test case: those test cases are missed. Narrowing the AQL filter is the safe way to make it faster.
+- **Threads** (8 by default, up to 32) is how many test cases are read at a time, and so how many requests go to Allure TestOps at once while finding changes. More is faster on a large project and loads the instance more; the rollback itself writes with 8.
+- The change log is read newest first and only down to the date. Each attribute gets the value it had then: for texts and references the value before the earliest change after the date, for tags, custom fields, members and issues the set after undoing every addition and removal since. An attribute that ends up as it is now, for example changed and changed back, is not touched.
+- Some things cannot come back and are listed as notes of the test case: a test case created after the date, a custom field value, tag, member or issue deleted since, a status or workflow that no longer exists.
+- A test case is written once: one request sets its attributes, tags, custom fields and members together, and issues take a second one when they changed. Right before writing, the test case is read again: if an attribute to restore changed since the preview, the test case is skipped and listed as a warning.
+- The rollback is made on behalf of the API token owner and shows in the change log of the test cases. Both jobs give a JSON report.
+
+### Allure TestOps API used
+
+- `GET /api/rs/testcase/__search?projectId=&rql=`, `GET /api/rs/testcase/query/validate?projectId=&rql=`
+- `GET /api/rs/testcase/audit?testCaseId=`
+- `GET /api/rs/testcase/{id}/overview`
+- `GET /api/rs/status`, `GET /api/rs/workflow`, `GET /api/rs/testlayer`, `GET /api/rs/tag/{id}`, `GET /api/rs/cfv/{id}`, `GET /api/rs/member/{id}`, `GET /api/rs/issue/{id}`: names of what the change log refers to by id
+- `PATCH /api/rs/testcase/{id}?v2=true`, `POST /api/rs/testcase/{id}/issue`
+
+## Unused custom field values
+
+Lists the values of the custom fields of a project with the number of test cases that have them, the way the project settings of Allure TestOps show them, and deletes the values no test case uses.
+
+1. Choose a project and the custom fields to look at (all of them by default), then **Find values**.
+2. The table shows the values with their test cases; **Only unused** keeps the values with none, **Project** and **Global** show project values or global ones. Only values without test cases can be selected.
+3. **Delete selected** checks the chosen values again and shows what deleting them affects before asking to confirm:
+   - **deleted test cases**: the count of test cases leaves out deleted ones, those in the recycle bin. Deleting a value removes it from them as well, and a restored test case comes back without it. Their number is shown for each value;
+   - **default value**: when a value is the default of its field in the project, the field is left without a default;
+   - **global values**: a global value is removed from this project only; when no other project and no test case has it, Allure TestOps deletes it altogether.
+4. The deletion runs as a job. Right before deleting, every value is read once more: a value that got test cases in the meantime, or is gone already, is skipped and listed as a warning. The job gives a JSON report with the outcome of every value, and the table is read again when it is over.
+
+A failed deletion is not repeated by the tool; finding the values again shows what is left.
+
+### Allure TestOps API used
+
+- `GET /api/rs/project/{projectId}/cf`
+- `GET /api/rs/project/{projectId}/cfv?customFieldId=`: values with `testCasesCount`
+- `GET /api/rs/testcase/query/validate?projectId=&deleted=true&rql=cf[<field id>] in [<value ids>]`: deleted test cases with the values
+- `DELETE /api/rs/project/{projectId}/cfv/{id}`
 
 ## Running
 

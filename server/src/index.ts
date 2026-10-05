@@ -3,13 +3,16 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { getConfig, isConfigured, normalizeEndpoint, saveConfig, toPublic } from "./config.js";
 import { cancelJob, deleteJob, getJob, jobFile, listJobs, removeOrphanedJobDirs, startJob } from "./jobs.js";
+import { checkValues, deleteUnusedValues, fieldValues, projectFields, type ValueRef } from "./fieldValues/cleanup.js";
 import { exportLaunchDocument, type LaunchDocumentOptions } from "./launchDocument/export.js";
 import { STATUS_ORDER, type DocumentSections, type StatusKey } from "./launchDocument/render.js";
 import { exportLaunchReport, type LaunchReportOptions } from "./launchReport/export.js";
 import { applyTemplate, previewTemplate, TemplateError, type TemplateOptions, type TemplateTarget } from "./projectTemplate/run.js";
 import { SECTION_KEYS, SECTIONS, type SectionKey } from "./projectTemplate/sections.js";
 import { envValues, envVars, InvalidAqlError, isBadRequest, launchTags, listLaunches } from "./launches.js";
-import { TestOpsClient, TestOpsError } from "./testops.js";
+import { ATTRIBUTES, type AttributeKey } from "./testCaseRollback/plan.js";
+import { applyRollback, MAX_THREADS, PlanError, readPlan, scanAql, scanRollback, type ScanOptions } from "./testCaseRollback/run.js";
+import { MAX_PARALLEL_REQUESTS, TestOpsClient, TestOpsError } from "./testops.js";
 
 let client: TestOpsClient | null = null;
 
@@ -222,6 +225,109 @@ app.post("/api/project-template", (req, res) => {
   if (options.target.mode === "existing" && options.target.projectId === options.sourceProjectId) throw new HttpError(400, "The source and the target are the same project");
   const c = currentClient();
   res.status(202).json(startJob("project-template", `Project ${options.sourceProjectId} as a template`, (ctx) => applyTemplate(c, options, ctx)));
+});
+
+function parseValueRefs(body: Record<string, unknown>): { projectId: number; values: ValueRef[] } {
+  const projectId = positiveInt(body.projectId, "Project ID");
+  const values = (Array.isArray(body.values) ? body.values : []).map((v: Record<string, unknown>) => ({
+    fieldId: Number(v?.fieldId),
+    valueId: positiveInt(v?.valueId, "Value ID"),
+  }));
+  // Built-in fields have negative ids.
+  if (values.some((v) => !Number.isSafeInteger(v.fieldId))) throw new HttpError(400, "Field ID must be an integer");
+  if (values.length === 0) throw new HttpError(400, "Choose at least one value");
+  return { projectId, values };
+}
+
+app.get("/api/projects/:projectId/custom-fields", async (req, res) => {
+  requireConfigured();
+  res.json(await projectFields(currentClient(), positiveInt(req.params.projectId, "Project ID")));
+});
+
+app.get("/api/projects/:projectId/custom-fields/:fieldId/values", async (req, res) => {
+  requireConfigured();
+  const fieldId = Number(req.params.fieldId);
+  if (!Number.isSafeInteger(fieldId)) throw new HttpError(400, "Field ID must be an integer");
+  res.json(await fieldValues(currentClient(), positiveInt(req.params.projectId, "Project ID"), fieldId));
+});
+
+app.post("/api/field-values/check", async (req, res) => {
+  requireConfigured();
+  const { projectId, values } = parseValueRefs(req.body ?? {});
+  res.json(await checkValues(currentClient(), projectId, values));
+});
+
+app.post("/api/field-values/delete", (req, res) => {
+  requireConfigured();
+  const options = parseValueRefs(req.body ?? {});
+  const c = currentClient();
+  res.status(202).json(startJob("field-values", `Project ${options.projectId}: unused custom field values`, (ctx) => deleteUnusedValues(c, options, ctx)));
+});
+
+function threads(value: unknown): number {
+  if (value === undefined || value === null || value === "") return MAX_PARALLEL_REQUESTS;
+  const n = Number(value);
+  if (!Number.isSafeInteger(n) || n < 1 || n > MAX_THREADS) throw new HttpError(400, `Threads must be a whole number from 1 to ${MAX_THREADS}`);
+  return n;
+}
+
+function parseScan(body: Record<string, unknown>): ScanOptions {
+  const after = Number(body.after);
+  if (!Number.isSafeInteger(after) || after <= 0) throw new HttpError(400, "Choose the date and time to roll back to");
+  if (after > Date.now()) throw new HttpError(400, "The date to roll back to is in the future");
+  const attributes = (Array.isArray(body.attributes) ? body.attributes : ATTRIBUTES).map(String);
+  const unknown = attributes.filter((a) => !(ATTRIBUTES as string[]).includes(a));
+  if (unknown.length) throw new HttpError(400, `Unknown attributes: ${unknown.join(", ")}`);
+  if (attributes.length === 0) throw new HttpError(400, "Choose at least one attribute to roll back");
+  return {
+    projectId: positiveInt(body.projectId, "Project ID"),
+    aql: String(body.aql ?? "").trim() || "true",
+    after,
+    attributes: attributes as AttributeKey[],
+    onlyModified: body.onlyModified === true,
+    threads: threads(body.threads),
+  };
+}
+
+app.post("/api/testcase-rollback/count", async (req, res) => {
+  requireConfigured();
+  const o = parseScan(req.body ?? {});
+  const check = await currentClient().get<{ valid: boolean; count?: number }>("/api/rs/testcase/query/validate", { projectId: String(o.projectId), rql: scanAql(o) });
+  if (!check.valid) throw new HttpError(400, "Allure TestOps does not accept this AQL filter");
+  res.json({ count: check.count ?? 0 });
+});
+
+app.post("/api/testcase-rollback/scan", (req, res) => {
+  requireConfigured();
+  const options = parseScan(req.body ?? {});
+  const c = currentClient();
+  res.status(202).json(startJob("testcase-rollback-scan", `Project ${options.projectId}: changes to roll back`, (ctx) => scanRollback(c, options, ctx)));
+});
+
+app.get("/api/testcase-rollback/plan/:jobId", async (req, res) => {
+  try {
+    res.json(await readPlan(req.params.jobId));
+  } catch (e) {
+    if (e instanceof PlanError) throw new HttpError(404, e.message);
+    throw e;
+  }
+});
+
+app.post("/api/testcase-rollback", async (req, res) => {
+  requireConfigured();
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const planJobId = String(body.planJobId ?? "");
+  const testCaseIds = (Array.isArray(body.testCaseIds) ? body.testCaseIds : []).map((v) => positiveInt(v, "Test case ID"));
+  if (testCaseIds.length === 0) throw new HttpError(400, "Choose at least one test case to roll back");
+  let plan;
+  try {
+    plan = await readPlan(planJobId);
+  } catch (e) {
+    if (e instanceof PlanError) throw new HttpError(404, e.message);
+    throw e;
+  }
+  const c = currentClient();
+  res.status(202).json(startJob("testcase-rollback", `Rollback of ${testCaseIds.length} test cases`, (ctx) => applyRollback(c, plan, testCaseIds, ctx)));
 });
 
 app.get("/api/jobs", (req, res) => {

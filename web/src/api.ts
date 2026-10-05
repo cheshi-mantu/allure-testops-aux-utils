@@ -97,6 +97,107 @@ export interface TemplateSummary {
   sections: { key: string; label: string; counts: Record<ActionKind, number>; failed: number; error: string | null }[];
 }
 
+export interface ProjectField {
+  id: number;
+  name: string;
+  required: boolean;
+  locked: boolean;
+  defaultValueId: number | null;
+}
+
+export interface FieldValue {
+  id: number;
+  name: string;
+  global: boolean;
+  testCases: number;
+}
+
+export interface ValueRef {
+  fieldId: number;
+  valueId: number;
+}
+
+export interface ValueImpact extends ValueRef {
+  fieldName: string;
+  name: string;
+  global: boolean;
+  testCases: number;
+  deletedTestCases: number;
+  isDefault: boolean;
+  gone: boolean;
+}
+
+export interface CleanupSummary {
+  project: Project;
+  deleted: number;
+  skipped: number;
+  failed: number;
+}
+
+export type RollbackAttribute =
+  | "name"
+  | "fullName"
+  | "description"
+  | "precondition"
+  | "expectedResult"
+  | "automated"
+  | "workflow"
+  | "status"
+  | "layer"
+  | "tags"
+  | "customFields"
+  | "members"
+  | "issues";
+
+export interface RollbackScanInput {
+  projectId: number;
+  aql: string;
+  after: number;
+  attributes: RollbackAttribute[];
+  onlyModified: boolean;
+  threads: number;
+}
+
+export interface RollbackChange {
+  key: RollbackAttribute;
+  label: string;
+  current: string;
+  target: string;
+  unchanged?: number;
+}
+
+export interface RollbackTestCase {
+  id: number;
+  name: string;
+  url: string;
+  changes: RollbackChange[];
+  notes: string[];
+  authors: Record<string, number>;
+}
+
+export interface RollbackPlan {
+  project: Project;
+  options: RollbackScanInput;
+  matched: number;
+  testCases: RollbackTestCase[];
+}
+
+export interface RollbackScanSummary {
+  project: Project;
+  matched: number;
+  scanned: number;
+  logEntries?: number;
+  toRollBack: number;
+  attributes: number;
+}
+
+export interface RollbackApplySummary {
+  project: Project;
+  rolledBack: number;
+  skipped: number;
+  failed: number;
+}
+
 export type JobState = "running" | "done" | "failed" | "cancelled";
 
 export interface Job {
@@ -155,6 +256,14 @@ export const api = {
   templateSections: () => call<TemplateSection[]>("GET", "/api/project-template/sections"),
   previewTemplate: (input: TemplateInput) => call<TemplatePreview>("POST", "/api/project-template/preview", input),
   startTemplate: (input: TemplateInput) => call<Job>("POST", "/api/project-template", input),
+  projectFields: (projectId: number) => call<ProjectField[]>("GET", `/api/projects/${projectId}/custom-fields`),
+  fieldValues: (projectId: number, fieldId: number) => call<FieldValue[]>("GET", `/api/projects/${projectId}/custom-fields/${fieldId}/values`),
+  checkValues: (projectId: number, values: ValueRef[]) => call<ValueImpact[]>("POST", "/api/field-values/check", { projectId, values }),
+  deleteValues: (projectId: number, values: ValueRef[]) => call<Job>("POST", "/api/field-values/delete", { projectId, values }),
+  rollbackCount: (input: RollbackScanInput) => call<{ count: number }>("POST", "/api/testcase-rollback/count", input),
+  rollbackScan: (input: RollbackScanInput) => call<Job>("POST", "/api/testcase-rollback/scan", input),
+  rollbackPlan: (jobId: string) => call<RollbackPlan>("GET", `/api/testcase-rollback/plan/${jobId}`),
+  rollbackApply: (planJobId: string, testCaseIds: number[]) => call<Job>("POST", "/api/testcase-rollback", { planJobId, testCaseIds }),
   jobs: (kind: string) => call<Job[]>("GET", `/api/jobs?kind=${encodeURIComponent(kind)}`),
   job: (id: string) => call<Job>("GET", `/api/jobs/${id}`),
   cancelJob: (id: string) => call<Job>("POST", `/api/jobs/${id}/cancel`),

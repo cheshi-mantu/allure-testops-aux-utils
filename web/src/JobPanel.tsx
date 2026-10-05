@@ -17,7 +17,18 @@ const STATE_TAG: Record<JobState, { color: string; label: string }> = {
 const viewable = (contentType: string) => contentType.startsWith("text/html") || contentType === "application/pdf";
 
 /** Polls a job while it runs; offers its files once it is done. */
-export function JobPanel({ initial, onDeleted, summary }: { initial: Job; onDeleted: (id: string) => void; summary?: (job: Job) => ReactNode }) {
+export function JobPanel({
+  initial,
+  onDeleted,
+  onFinished,
+  summary,
+}: {
+  initial: Job;
+  onDeleted: (id: string) => void;
+  /** Called once when a job seen running is over. */
+  onFinished?: (job: Job) => void;
+  summary?: (job: Job) => ReactNode;
+}) {
   const [job, setJob] = useState(initial);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,6 +39,7 @@ export function JobPanel({ initial, onDeleted, summary }: { initial: Job; onDele
         (j) => {
           setJob(j);
           setError(null);
+          if (j.state !== "running") onFinished?.(j);
         },
         (e: unknown) => setError(errorText(e)),
       );
@@ -109,7 +121,7 @@ export function JobPanel({ initial, onDeleted, summary }: { initial: Job; onDele
 }
 
 /** Jobs of one kind, newest first; `added` puts a just started job on top. */
-export function JobList({ kind, added, summary }: { kind: string; added: Job | null; summary?: (job: Job) => ReactNode }) {
+export function JobList({ kind, added, summary, onFinished }: { kind: string; added: Job | null; summary?: (job: Job) => ReactNode; onFinished?: (job: Job) => void }) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -126,7 +138,7 @@ export function JobList({ kind, added, summary }: { kind: string; added: Job | n
   return (
     <Space orientation="vertical" style={{ width: "100%" }}>
       {jobs.map((j) => (
-        <JobPanel key={j.id} initial={j} summary={summary} onDeleted={(id) => setJobs((list) => list.filter((x) => x.id !== id))} />
+        <JobPanel key={j.id} initial={j} summary={summary} onFinished={onFinished} onDeleted={(id) => setJobs((list) => list.filter((x) => x.id !== id))} />
       ))}
     </Space>
   );

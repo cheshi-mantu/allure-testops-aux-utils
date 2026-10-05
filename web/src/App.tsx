@@ -1,11 +1,13 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Alert, Layout, Menu, Spin, Typography } from "antd";
-import { CopyOutlined, FileTextOutlined, ProfileOutlined, SettingOutlined } from "@ant-design/icons";
+import { ClearOutlined, CopyOutlined, HistoryOutlined, FileTextOutlined, ProfileOutlined, SettingOutlined } from "@ant-design/icons";
 import { api, errorText, type PublicConfig } from "./api";
+import { FieldValuesPage } from "./FieldValuesPage";
 import { LaunchDocumentPage } from "./LaunchDocumentPage";
 import { LaunchReportPage } from "./LaunchReportPage";
 import { ProjectTemplatePage } from "./ProjectTemplatePage";
 import { SettingsPage } from "./SettingsPage";
+import { TestCaseRollbackPage } from "./TestCaseRollbackPage";
 
 /** A tool shown in the side menu. New tools are added here. */
 interface Tool {
@@ -20,6 +22,8 @@ const TOOLS: Tool[] = [
   { key: "launch-report", group: "Export", label: "Launch → Allure Report", icon: <FileTextOutlined />, render: () => <LaunchReportPage /> },
   { key: "launch-document", group: "Export", label: "Launch → HTML document", icon: <ProfileOutlined />, render: () => <LaunchDocumentPage /> },
   { key: "project-template", group: "Projects", label: "Project as a template", icon: <CopyOutlined />, render: () => <ProjectTemplatePage /> },
+  { key: "testcase-rollback", group: "Test cases", label: "Rollback of changes", icon: <HistoryOutlined />, render: () => <TestCaseRollbackPage /> },
+  { key: "field-values", group: "Cleanup", label: "Unused custom field values", icon: <ClearOutlined />, render: () => <FieldValuesPage /> },
 ];
 
 const SETTINGS = "settings";

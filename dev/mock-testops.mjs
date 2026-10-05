@@ -5,6 +5,7 @@
 // page instead of JSON, the way an overloaded server sometimes answers.
 import { createServer } from "node:http";
 import { handleConfig, projectDefaults, seedConfig } from "./mock-config.mjs";
+import { handleTestCases, seedTestCases, testCasesDump } from "./mock-testcases.mjs";
 
 const PORT = Number(process.env.MOCK_PORT ?? 9090);
 const TOKEN = process.env.MOCK_TOKEN ?? "mock-token";
@@ -63,6 +64,7 @@ function cf(id, name, ...values) {
 }
 
 seedConfig(projects, "mock");
+seedTestCases(projects[0].id);
 
 // Twelve small launches per project; MOCK_LARGE_LAUNCH=20000 adds a big one to "Mobile App".
 const specs = projects.flatMap((p) => Array.from({ length: 12 }, (_, l) => ({ p, l, count: 40, name: null })));
@@ -500,6 +502,8 @@ createServer(async (req, res) => {
     res.writeHead(200, { "Content-Type": a.contentType, "Content-Length": a.body.length });
     return res.end(a.body);
   }
+  if (path === "/mock/testcases") return send(res, 200, testCasesDump());
+  if (handleTestCases(req, url, body, { send: (status, b) => send(res, status, b), page: (items) => page(items, url) })) return;
   if (handleConfig(req, url, body, { send: (status, b) => send(res, status, b), page: (items) => page(items, url) })) return;
   send(res, 404, { message: `Mock has no ${req.method} ${path}` });
 }).listen(PORT, () => {

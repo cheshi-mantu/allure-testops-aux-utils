@@ -1,7 +1,8 @@
 /** Minimal Allure TestOps REST client. */
 
 const PAGE_SIZE = 1000;
-const MAX_PARALLEL_REQUESTS = 8;
+/** Requests to one instance at a time, unless a job asks for another number. */
+export const MAX_PARALLEL_REQUESTS = 8;
 const REQUEST_TIMEOUT_MS = 120_000;
 /** Reads are repeated after server errors; writes never are (see `post`). */
 const READ_ATTEMPTS = 4;
@@ -51,12 +52,20 @@ type Auth = { header: string; expiresAt: number };
 export class TestOpsClient {
   private auth: Auth | null = null;
   private authPending: Promise<Auth> | null = null;
-  private readonly slots = new Semaphore(MAX_PARALLEL_REQUESTS);
+  private readonly slots: Semaphore;
 
   constructor(
     readonly endpoint: string,
     private readonly token: string,
-  ) {}
+    readonly parallel = MAX_PARALLEL_REQUESTS,
+  ) {
+    this.slots = new Semaphore(parallel);
+  }
+
+  /** A client of the same instance making up to `parallel` requests at a time. */
+  withParallel(parallel: number): TestOpsClient {
+    return parallel === this.parallel ? this : new TestOpsClient(this.endpoint, this.token, parallel);
+  }
 
   async projects(): Promise<ApiProject[]> {
     return this.all<ApiProject>("/api/rs/project", { sort: "name,asc" });
