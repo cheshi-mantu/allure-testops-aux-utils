@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { getConfig, isConfigured, normalizeEndpoint, saveConfig, toPublic } from "./config.js";
 import { cancelJob, deleteJob, getJob, jobFile, listJobs, removeOrphanedJobDirs, startJob } from "./jobs.js";
 import { checkValues, deleteUnusedValues, fieldValues, projectFields, type ValueRef } from "./fieldValues/cleanup.js";
+import { CleanupError, countLaunches, deleteLaunches, MAX_THREADS as MAX_CLEANUP_THREADS, PlanError as CleanupPlanError, readCleanupPlan, scanLaunches, type CleanupOptions } from "./launchCleanup.js";
 import { exportLaunchDocument, type LaunchDocumentOptions } from "./launchDocument/export.js";
 import { STATUS_ORDER, type DocumentSections, type StatusKey } from "./launchDocument/render.js";
 import { exportLaunchReport, type LaunchReportOptions } from "./launchReport/export.js";
@@ -328,6 +329,60 @@ app.post("/api/testcase-rollback", async (req, res) => {
   }
   const c = currentClient();
   res.status(202).json(startJob("testcase-rollback", `Rollback of ${testCaseIds.length} test cases`, (ctx) => applyRollback(c, plan, testCaseIds, ctx)));
+});
+
+function parseCleanup(body: Record<string, unknown>): CleanupOptions {
+  const keepDays = Number(body.keepDays);
+  if (!Number.isSafeInteger(keepDays) || keepDays < 0 || keepDays > 36500) throw new HttpError(400, "Days to keep must be a whole number from 0");
+  const threads = body.threads === undefined || body.threads === null || body.threads === "" ? MAX_PARALLEL_REQUESTS : Number(body.threads);
+  if (!Number.isSafeInteger(threads) || threads < 1 || threads > MAX_CLEANUP_THREADS) throw new HttpError(400, `Threads must be a whole number from 1 to ${MAX_CLEANUP_THREADS}`);
+  return {
+    projectId: positiveInt(body.projectId, "Project ID"),
+    keepDays,
+    aql: String(body.aql ?? "").trim() || "true",
+    onlyClosed: body.onlyClosed !== false,
+    threads,
+  };
+}
+
+async function cleanupPlan(jobId: string) {
+  try {
+    return await readCleanupPlan(jobId);
+  } catch (e) {
+    if (e instanceof CleanupPlanError) throw new HttpError(404, e.message);
+    throw e;
+  }
+}
+
+app.post("/api/launch-cleanup/count", async (req, res) => {
+  requireConfigured();
+  try {
+    res.json({ count: await countLaunches(currentClient(), parseCleanup(req.body ?? {})) });
+  } catch (e) {
+    if (e instanceof CleanupError) throw new HttpError(400, e.message);
+    throw e;
+  }
+});
+
+app.post("/api/launch-cleanup/scan", (req, res) => {
+  requireConfigured();
+  const options = parseCleanup(req.body ?? {});
+  const c = currentClient();
+  res.status(202).json(startJob("launch-cleanup-scan", `Project ${options.projectId}: launches older than ${options.keepDays} days`, (ctx) => scanLaunches(c, options, ctx)));
+});
+
+app.get("/api/launch-cleanup/plan/:jobId", async (req, res) => {
+  res.json(await cleanupPlan(req.params.jobId));
+});
+
+app.post("/api/launch-cleanup", async (req, res) => {
+  requireConfigured();
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const launchIds = (Array.isArray(body.launchIds) ? body.launchIds : []).map((v) => positiveInt(v, "Launch ID"));
+  if (launchIds.length === 0) throw new HttpError(400, "Choose at least one launch to delete");
+  const plan = await cleanupPlan(String(body.planJobId ?? ""));
+  const c = currentClient();
+  res.status(202).json(startJob("launch-cleanup", `Deleting ${launchIds.length} launches`, (ctx) => deleteLaunches(c, plan, launchIds, ctx)));
 });
 
 app.get("/api/jobs", (req, res) => {

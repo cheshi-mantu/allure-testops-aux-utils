@@ -1,8 +1,9 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Alert, Layout, Menu, Spin, Typography } from "antd";
-import { ClearOutlined, CopyOutlined, HistoryOutlined, FileTextOutlined, ProfileOutlined, SettingOutlined } from "@ant-design/icons";
+import { ClearOutlined, CopyOutlined, DeleteOutlined, HistoryOutlined, FileTextOutlined, ProfileOutlined, SettingOutlined } from "@ant-design/icons";
 import { api, errorText, type PublicConfig } from "./api";
 import { FieldValuesPage } from "./FieldValuesPage";
+import { LaunchCleanupPage } from "./LaunchCleanupPage";
 import { LaunchDocumentPage } from "./LaunchDocumentPage";
 import { LaunchReportPage } from "./LaunchReportPage";
 import { ProjectTemplatePage } from "./ProjectTemplatePage";
@@ -23,6 +24,7 @@ const TOOLS: Tool[] = [
   { key: "launch-document", group: "Export", label: "Launch → HTML document", icon: <ProfileOutlined />, render: () => <LaunchDocumentPage /> },
   { key: "project-template", group: "Projects", label: "Project as a template", icon: <CopyOutlined />, render: () => <ProjectTemplatePage /> },
   { key: "testcase-rollback", group: "Test cases", label: "Rollback of changes", icon: <HistoryOutlined />, render: () => <TestCaseRollbackPage /> },
+  { key: "launch-cleanup", group: "Cleanup", label: "Launch cleanup", icon: <DeleteOutlined />, render: () => <LaunchCleanupPage /> },
   { key: "field-values", group: "Cleanup", label: "Unused custom field values", icon: <ClearOutlined />, render: () => <FieldValuesPage /> },
 ];
 

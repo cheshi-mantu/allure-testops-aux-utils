@@ -13,9 +13,9 @@ interface Stored {
   aqlText: string;
 }
 
-function load(): Stored {
+function load(key: string): Stored {
   try {
-    const s = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null") as Stored | null;
+    const s = JSON.parse(localStorage.getItem(key) ?? "null") as Stored | null;
     if (s && Array.isArray(s.conditions)) return { conditions: s.conditions, aqlMode: Boolean(s.aqlMode), aqlText: String(s.aqlText ?? "") };
   } catch {
     // The saved filter is a convenience only.
@@ -23,9 +23,9 @@ function load(): Stored {
   return { conditions: [], aqlMode: false, aqlText: "" };
 }
 
-function save(s: Stored): void {
+function save(key: string, s: Stored): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+    localStorage.setItem(key, JSON.stringify(s));
   } catch {
     // Same as above.
   }
@@ -118,8 +118,17 @@ function ValueSelect({ projectId, condition, onChange }: { projectId: number; co
  * Filter by tags and by single environment variables, joined with AND / OR,
  * or by AQL typed by hand. Reports the AQL to apply.
  */
-export function LaunchFilter({ projectId, onApply }: { projectId: number | null; onApply: (aql: string) => void }) {
-  const initial = useMemo(load, []);
+export function LaunchFilter({
+  projectId,
+  onApply,
+  storageKey = STORAGE_KEY,
+}: {
+  projectId: number | null;
+  onApply: (aql: string) => void;
+  /** Where the filter is remembered; each tool keeps its own. */
+  storageKey?: string;
+}) {
+  const initial = useMemo(() => load(storageKey), []);
   const [conditions, setConditions] = useState(initial.conditions);
   const [aqlMode, setAqlMode] = useState(initial.aqlMode);
   const [aqlText, setAqlText] = useState(initial.aqlText);
@@ -127,7 +136,7 @@ export function LaunchFilter({ projectId, onApply }: { projectId: number | null;
   const built = filterAql(conditions);
   const applied = aqlMode ? appliedText.trim() : built;
 
-  useEffect(() => save({ conditions, aqlMode, aqlText: appliedText }), [conditions, aqlMode, appliedText]);
+  useEffect(() => save(storageKey, { conditions, aqlMode, aqlText: appliedText }), [conditions, aqlMode, appliedText]);
 
   useEffect(() => {
     const t = setTimeout(() => onApply(applied), aqlMode ? 0 : DEBOUNCE_MS);

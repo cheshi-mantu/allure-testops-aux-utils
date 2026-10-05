@@ -12,7 +12,7 @@ A containerized React and Node.js application with auxiliary tools for Allure Te
 | Test cases → Markdown files | planned |
 | Markdown files → test cases | planned |
 | Gherkin feature files with examples → test cases | planned |
-| Launch cleanup | planned |
+| [Launch cleanup](#launch-cleanup): launches older than the history to keep, optionally filtered, listed in a dry run and deleted | available |
 | [Rollback of test case changes](#rollback-of-test-case-changes): test cases taken back to how they were at a point in time, previewed first | available |
 | [Project as a template](#project-as-a-template): the configuration of a project copied into a new or an existing one | available |
 | [Unused custom field values](#unused-custom-field-values): values of custom fields no test case of a project uses, checked and deleted | available |
@@ -223,6 +223,27 @@ How it works:
 - `GET /api/rs/testcase/{id}/overview`
 - `GET /api/rs/status`, `GET /api/rs/workflow`, `GET /api/rs/testlayer`, `GET /api/rs/tag/{id}`, `GET /api/rs/cfv/{id}`, `GET /api/rs/member/{id}`, `GET /api/rs/issue/{id}`: names of what the change log refers to by id
 - `PATCH /api/rs/testcase/{id}?v2=true`, `POST /api/rs/testcase/{id}/issue`
+
+## Launch cleanup
+
+Deletes the launches of a project older than the history to keep.
+
+1. Choose a project and the number of days of history to keep: launches created before that many days ago are deleted. **Only launches matching** narrows them with conditions on tags and environment variables joined with AND / OR, or with AQL typed by hand, for example `tag = "nightly"` or `release = null`. **Only closed launches** (on by default) leaves the launches still open: they may be in progress. **Count launches** tells how many go.
+2. **Dry run** lists the launches to delete, oldest first, with their creation date and author, tags, environment and the number of test results by status. The list is saved as JSON and CSV to download. Nothing is deleted.
+3. Uncheck the launches to keep, then **Delete**: the number of launches has to be typed to confirm.
+
+How it works:
+
+- The launches are selected with `(<filter>) and createdDate < <now minus the days to keep> and closed = true`. The date is fixed by the dry run: the deletion uses the same query, not a later date.
+- Right before deleting, the query of the dry run is made again; a launch that no longer matches it, or is gone already, is skipped and listed as a warning.
+- Launches are deleted one by one, **Threads** at a time (8 by default). A deletion that fails is not repeated: the launch is looked up, and if it is gone it counts as deleted, otherwise as failed. The job gives a JSON report with the outcome of every launch.
+- A launch is deleted with its test results, on behalf of the API token owner; it cannot be undone.
+
+### Allure TestOps API used
+
+- `GET /api/rs/launch/query/validate?projectId=&rql=`, `GET /api/rs/launch/__search?projectId=&rql=`
+- `GET /api/rs/launch/{id}`, `GET /api/rs/launch/{id}/env`, `GET /api/rs/launch/{id}/statistic`
+- `DELETE /api/rs/launch/{id}`
 
 ## Unused custom field values
 
