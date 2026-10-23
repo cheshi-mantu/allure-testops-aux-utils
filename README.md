@@ -18,6 +18,15 @@ A containerized React and Node.js application with auxiliary tools for Allure Te
 | [Unused custom field values](#unused-custom-field-values): values of custom fields no test case of a project uses, checked and deleted | available |
 | Cleanup of environment values and tags, showing the affected entities first | planned |
 
+## Quick(est) start
+
+```shell
+mkdir allure-testops-aux-utils
+cd ./allure-testops-aux-utils
+curl -O https://raw.githubusercontent.com/cheshi-mantu/allure-testops-aux-utils/main/docker-compose.yml
+docker compose up -d
+```
+
 ## Launch → Allure Report
 
 Builds an [Allure Report 3](https://allurereport.org/docs/v3/) from the test results of one launch as one HTML file. The file opens in any browser straight from the disk, without a web server, so it can be attached to a ticket, an email or a CI artifact.
